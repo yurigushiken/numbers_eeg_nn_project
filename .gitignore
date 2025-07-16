@@ -1,0 +1,13 @@
+.vscode/
+__pycache__/
+*.egg-info/
+.ipynb_checkpoints/
+.DS_Store
+.env
+data_input/
+data_preprocessed/
+models/
+results/
+torcheeg_io/
+torcheeg-env/
+
