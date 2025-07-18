@@ -1,0 +1,8 @@
+# Hyperparameter sweep definitions for data augmentation
+# All runs from this sweep will use 3 folds for quicker iteration.
+
+shift_p: [0.3, 0.5, 0.7]
+noise_std: [0.0, 0.01, 0.02]
+scale_p: [0.3, 0.5, 0.7]
+
+max_folds: 3 

@@ -1,0 +1,11 @@
+dataset_dir: data_preprocessed/acc_1_dataset
+
+# training
+batch_size: 64
+lr: 1e-4
+epochs: 100
+early_stop: 15
+
+# augmentation
+noise_std: 0.05
+channel_dropout_p: 0.1 
