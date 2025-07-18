@@ -10,4 +10,9 @@ models/
 results/
 torcheeg_io/
 torcheeg-env/
-
+reference-files/
+docs/
+*.png
+*.fif
+*.set
+*.csv
