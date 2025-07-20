@@ -136,7 +136,13 @@ data_spectrograms/
 
 **Stage 2: Train the ViT Model**
 
-This script loads the pre-computed spectrograms from `data_spectrograms/` and trains a Vision Transformer model using Leave-One-Subject-Out (LOSO) cross-validation. It supports hyper-parameter configuration via YAML and CLI, and seamlessly integrates with Optuna for advanced sweeping.
+This script loads the pre-computed spectrograms from `data_spectrograms/` and trains a Vision Transformer model using Leave-One-Subject-Out (LOSO) cross-validation. By default it uses the **medium** backbone (`vit_relpos_medium_patch16_224`) but any ViT name known to `timm` can be passed via `--set model_name=…`. The script supports YAML/CLI configuration and integrates with Optuna for advanced sweeping.
+
+⚠️  Ensure you have a recent `timm` build (≥ v1.0.17 or current `main` branch) so that `vit_relpos_medium_patch16_224` is recognised:
+
+```powershell
+pip install -U "git+https://github.com/rwightman/pytorch-image-models.git"
+```
 
 Example:
 
@@ -332,7 +338,7 @@ scripts/
   run_sweep.py             # sweep controller
   rebuild_runs_index.py    # rebuild catalogue from JSON summaries
  data_spectrograms/         # NEW: Pre-computed spectrogram images for ViT inputs
-   landing_digit_cwt_128x128/     # Example dataset: STFT spectrograms, 128×128 resolution
+   landing_digit_cwt_128x128/     # Example dataset: CWT spectrograms, 128×128 resolution
      trial_000001.npy
      metadata.csv
  optuna_studies/            # NEW: Optuna database files for different task types

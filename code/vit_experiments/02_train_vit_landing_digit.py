@@ -70,6 +70,9 @@ DEFAULTS: dict[str, Any] = {
     'label_smoothing': 0.05,
     'grad_clip_norm': 1.0,
     'min_lr': 1e-6,
+
+    # -- DataLoader --
+    'num_workers': 4,
 }
 
 # ----------------------------------------------------------------------------
@@ -211,11 +214,12 @@ def main():
     for fold, (tr_idx, va_idx) in enumerate(logo.split(np.zeros(len(ds)), np.zeros(len(ds)), groups)):
         if cfg.get('max_folds') and fold >= cfg['max_folds']:
             break
+        nw = int(cfg.get('num_workers', 4))
         tr_ld = DataLoader(
             Subset(ds, tr_idx),
             batch_size=cfg['batch_size'],
             shuffle=True,
-            num_workers=4,
+            num_workers=nw,
             pin_memory=True,
             persistent_workers=True,
             prefetch_factor=4,
@@ -225,7 +229,7 @@ def main():
             Subset(ds, va_idx),
             batch_size=cfg['batch_size'],
             shuffle=False,
-            num_workers=2,
+            num_workers=max(1, nw//2),
             pin_memory=True,
             persistent_workers=True,
             prefetch_factor=4,
@@ -316,6 +320,7 @@ def main():
         aug = SpecAugment(cfg['time_mask_p'], cfg['time_mask_frac'], cfg['freq_mask_p'], cfg['freq_mask_frac'])
 
         best_acc = 0.0
+        best_epoch = 0
         patience = 0
         epoch_train_loss = []
         epoch_val_acc = []
@@ -329,6 +334,7 @@ def main():
             sched.step()
             if va_acc > best_acc:
                 best_acc = va_acc
+                best_epoch = epoch
                 patience = 0
             else:
                 patience += 1
@@ -358,18 +364,23 @@ def main():
         ax = plt.gca()
         digit_labels = [str(d) for d in ds.classes_]
         sns.heatmap(cm, annot=True, fmt='.1f', cmap='Blues', vmin=0, vmax=100,
-                    xticklabels=digit_labels, yticklabels=digit_labels, square=True, cbar_kws={'label':'%'} )
-        # Highlight diag in black & largest off-diag in red
-        for i in range(n_classes):
-            y_idx = n_classes - 1 - i  # because seaborn.heatmap inverts y-axis
-            ax.add_patch(Rectangle((i, y_idx), 1, 1, fill=False, edgecolor='black', lw=2))
-            # red rectangle on row-wise worst error (highest off-diag)
-            row_vals = cm[i].copy(); row_vals[i] = 0
-            if row_vals.max() > 0:
-                j = int(row_vals.argmax())
-                ax.add_patch(Rectangle((j, y_idx), 1, 1, fill=False, edgecolor='red', lw=2))
+                    xticklabels=digit_labels, yticklabels=digit_labels, square=True,
+                    cbar_kws={'label':'%'})
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
+        ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
 
-        plt.title(f'Fold {fold+1} Confusion')
+        # Diagonal black squares
+        for i in range(n_classes):
+            ax.add_patch(Rectangle((i, i), 1, 1, fill=False, edgecolor='black', lw=2))
+
+        # Per-row maximum (may coincide with diagonal) – orange overlay
+        for i in range(n_classes):
+            j = int(cm[i].argmax())
+            ax.add_patch(Rectangle((j, i), 1, 1, fill=False, edgecolor='#FFA500', lw=1.5))
+
+        test_subj = int(groups[va_idx][0]) if len(va_idx)>0 else -1
+        plt.title(f'Fold {fold+1} (sub-{test_subj}) – best {best_acc:.1f}% @ep {best_epoch} – {run_id}',
+                  fontfamily='monospace', pad=14)
         plt.ylabel('True'); plt.xlabel('Pred')
         fig_path = run_dir / f'fold{fold+1}_confusion.png'
         fig.savefig(fig_path, dpi=300, bbox_inches='tight'); plt.close(fig)
@@ -387,6 +398,14 @@ def main():
 
         print(f"Fold {fold+1} best {best_acc:.2f}%")
 
+        # ------------------------------------------------------------------
+        # Free GPU memory before next fold to keep VRAM usage low when this
+        # script is driven by an Optuna study that spawns multiple runs.
+        # ------------------------------------------------------------------
+        del model, opt, sched, tr_ld, va_ld  # remove references
+        torch.cuda.empty_cache()            # reclaim VRAM immediately
+        torch.cuda.ipc_collect()           # clean IPC cache (CUDA context)
+
     mean_acc = float(np.mean(val_accs))
     std_acc = float(np.std(val_accs))
 
@@ -399,16 +418,18 @@ def main():
     ax = plt.gca()
     digit_labels = [str(d) for d in ds.classes_]
     sns.heatmap(overall_cm, annot=True, fmt='.1f', cmap='Blues', vmin=0, vmax=100,
-                xticklabels=digit_labels, yticklabels=digit_labels, square=True, cbar_kws={'label':'%'} )
+                xticklabels=digit_labels, yticklabels=digit_labels, square=True, cbar_kws={'label':'%'})
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=0)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
     for i in range(n_classes):
-        y_idx = n_classes - 1 - i
-        ax.add_patch(Rectangle((i, y_idx), 1, 1, fill=False, edgecolor='black', lw=2))
-        row_vals = overall_cm[i].copy(); row_vals[i] = 0
-        if row_vals.max() > 0:
-            j = int(row_vals.argmax())
-            ax.add_patch(Rectangle((j, y_idx), 1, 1, fill=False, edgecolor='red', lw=2))
+        ax.add_patch(Rectangle((i, i), 1, 1, fill=False, edgecolor='black', lw=2))
 
-    plt.title('Overall Confusion')
+    for i in range(n_classes):
+        oj = int(overall_cm[i].argmax())
+        ax.add_patch(Rectangle((oj, i), 1, 1, fill=False, edgecolor='#FFA500', lw=1.5))
+
+    plt.title(f'Overall Confusion – mean {mean_acc:.1f}%  –  {run_id}',
+              fontfamily='monospace', pad=14)
     plt.ylabel('True'); plt.xlabel('Pred')
     overall_cm_fp = run_dir / 'overall_confusion.png'
     fig.savefig(overall_cm_fp, dpi=300, bbox_inches='tight'); plt.close(fig)
@@ -486,6 +507,10 @@ def main():
     report_path.write_text('\n'.join(lines))
 
     print(f"Mean LOSO accuracy: {mean_acc:.2f}%")
+
+    # Final cleanup – just in case the outer caller keeps the process alive
+    del ds, overall_y_true, overall_y_pred
+    torch.cuda.empty_cache(); torch.cuda.ipc_collect()
 
 
 if __name__ == '__main__':
