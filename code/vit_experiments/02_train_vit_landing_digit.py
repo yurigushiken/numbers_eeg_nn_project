@@ -206,12 +206,34 @@ def main():
 
     n_classes = len(ds.classes_)
 
-    logo = LeaveOneGroupOut()
+    unique_subjects = np.unique(groups)
+    n_subjects = len(unique_subjects)
+
+    # -------------------------------------------------------------
+    # Build list of (train_idx, val_idx) tuples.
+    # If max_folds is specified and smaller than number of subjects we draw
+    # that many distinct subjects using a deterministic RNG (seeded by
+    # optuna_trial_id when present) so Optuna resumes reproducibly.
+    # -------------------------------------------------------------
+
+    if cfg.get('max_folds') and cfg['max_folds'] < n_subjects:
+        seed = int(cfg.get('optuna_trial_id', 0))
+        rng = np.random.default_rng(seed)
+        held_out_subjects = rng.choice(unique_subjects, size=cfg['max_folds'], replace=False)
+        logo_splits = [
+            (np.where(groups != s)[0], np.where(groups == s)[0])
+            for s in held_out_subjects
+        ]
+    else:
+        held_out_subjects = unique_subjects  # full LOSO set
+        logo_splits = list(LeaveOneGroupOut().split(np.zeros(len(ds)), np.zeros(len(ds)), groups))
+
 
     val_accs = []
+    per_fold_meta = []
     overall_y_true = []
     overall_y_pred = []
-    for fold, (tr_idx, va_idx) in enumerate(logo.split(np.zeros(len(ds)), np.zeros(len(ds)), groups)):
+    for fold, (tr_idx, va_idx) in enumerate(logo_splits):
         if cfg.get('max_folds') and fold >= cfg['max_folds']:
             break
         nw = int(cfg.get('num_workers', 4))
@@ -379,8 +401,10 @@ def main():
             ax.add_patch(Rectangle((j, i), 1, 1, fill=False, edgecolor='#FFA500', lw=1.5))
 
         test_subj = int(groups[va_idx][0]) if len(va_idx)>0 else -1
-        plt.title(f'Fold {fold+1} (sub-{test_subj}) – best {best_acc:.1f}% @ep {best_epoch} – {run_id}',
-                  fontfamily='monospace', pad=14)
+        total_ep = epoch  # last epoch executed (may be < cfg["epochs"] due to early stop)
+        title = (f'Fold {fold+1} (sub-{test_subj})\n'
+                 f'best {best_acc:.1f}% @ep {best_epoch}/{total_ep}   {run_id}')
+        plt.title(title, fontfamily='monospace', pad=22)
         plt.ylabel('True'); plt.xlabel('Pred')
         fig_path = run_dir / f'fold{fold+1}_confusion.png'
         fig.savefig(fig_path, dpi=300, bbox_inches='tight'); plt.close(fig)
@@ -398,6 +422,15 @@ def main():
 
         print(f"Fold {fold+1} best {best_acc:.2f}%")
 
+        # Record fold metadata
+        per_fold_meta.append({
+            'fold': fold + 1,
+            'subject': test_subj,
+            'best_val_acc': best_acc,
+            'best_epoch': best_epoch,
+            'epochs_run': total_ep
+        })
+
         # ------------------------------------------------------------------
         # Free GPU memory before next fold to keep VRAM usage low when this
         # script is driven by an Optuna study that spawns multiple runs.
@@ -408,6 +441,8 @@ def main():
 
     mean_acc = float(np.mean(val_accs))
     std_acc = float(np.std(val_accs))
+
+    avg_epochs_run = float(np.mean([d['epochs_run'] for d in per_fold_meta]))
 
     # overall confusion
     overall_counts = confusion_matrix(overall_y_true, overall_y_pred, labels=list(range(n_classes)))
@@ -428,18 +463,20 @@ def main():
         oj = int(overall_cm[i].argmax())
         ax.add_patch(Rectangle((oj, i), 1, 1, fill=False, edgecolor='#FFA500', lw=1.5))
 
-    plt.title(f'Overall Confusion – mean {mean_acc:.1f}%  –  {run_id}',
-              fontfamily='monospace', pad=14)
+    title_over = f'Overall Confusion  (mean {mean_acc:.1f}%)\n{run_id}'
+    plt.title(title_over, fontfamily='monospace', pad=22)
     plt.ylabel('True'); plt.xlabel('Pred')
     overall_cm_fp = run_dir / 'overall_confusion.png'
     fig.savefig(overall_cm_fp, dpi=300, bbox_inches='tight'); plt.close(fig)
 
-    # Final summary for JSON & report
+    # ------------------------ Summary ------------------------------
     summary = {
         'run_id': run_id,
         'script': Path(__file__).name,
         'mean_acc': mean_acc,
         'std_acc': std_acc,
+        'avg_epochs_run': avg_epochs_run,
+        'held_out_subjects': [int(s) for s in held_out_subjects],
         'hyper': {k: v for k, v in cfg.items() if k not in ['optuna_trial_id', 'optuna_params']},
         'overall_confusion_matrix_data': overall_cm.tolist(),
         'artefacts': {
@@ -447,17 +484,14 @@ def main():
             'fold_confusion_matrices_png': [],
             'fold_curve_plots_png': [],
         },
-        'per_fold_details': []
+        'per_fold_details': per_fold_meta,
     }
 
-    # Update per-fold details and artifact paths in summary
-    for fold, acc in enumerate(val_accs):
-        summary['per_fold_details'].append({
-            'fold': fold + 1,
-            'best_val_acc': acc
-        })
-        summary['artefacts']['fold_confusion_matrices_png'].append(str((run_dir / f'fold{fold+1}_confusion.png').relative_to(Path('results'))))
-        summary['artefacts']['fold_curve_plots_png'].append(str((run_dir / f'fold{fold+1}_curves.png').relative_to(Path('results'))))
+    # Add artefact paths aligned with per_fold_meta order
+    for meta in per_fold_meta:
+        f = meta['fold']
+        summary['artefacts']['fold_confusion_matrices_png'].append(str((run_dir / f'fold{f}_confusion.png').relative_to(Path('results'))))
+        summary['artefacts']['fold_curve_plots_png'].append(str((run_dir / f'fold{f}_curves.png').relative_to(Path('results'))))
 
     # write summary json
     (run_dir / 'summary_02_train_vit_landing_digit.json').write_text(json.dumps(summary, indent=2))
@@ -484,9 +518,11 @@ def main():
     lines.append(f"  {cmd_line}\n")
 
     lines.append("Performance (Leave-One-Subject-Out, % accuracy):")
-    lines.append(f"  Mean = {mean_acc:.2f}   Std = {std_acc:.2f}")
-    per_fold_txt = ', '.join([f"{d['fold']}:{d['best_val_acc']:.2f}" for d in summary['per_fold_details']])
-    lines.append(f"  Per-fold best = {per_fold_txt}\n")
+    lines.append(f"  Mean = {mean_acc:.2f}   Std = {std_acc:.2f}   Avg epochs/fold = {avg_epochs_run:.1f}")
+    per_fold_txt = ', '.join([f"{d['fold']}:{d['best_val_acc']:.2f} ({d['best_epoch']}/{d['epochs_run']})" for d in per_fold_meta])
+    lines.append(f"  Per-fold best (best_ep/epochs) = {per_fold_txt}\n")
+
+    lines.append(f"Held-out subjects this run: {', '.join(str(s) for s in held_out_subjects)}\n")
 
     lines.append("Key Hyper-parameters:")
     for k, v in hyper_short.items():
