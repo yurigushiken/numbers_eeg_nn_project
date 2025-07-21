@@ -96,7 +96,10 @@ def parse_args():
             python 02_train_vit_landing_digit.py --lr 5e-4 --batch_size 16
         """))
     p.add_argument('--cfg', type=str, help='YAML/JSON config path')
-    p.add_argument('--set', nargs='*', metavar='KEY=VAL', help='Free-form overrides')
+    p.add_argument('--set', nargs='*', metavar='KEY=VAL',
+                   help='Override any cfg entry   e.g.  --set lr=1e-4')
+    p.add_argument('--in_memory', action='store_true',
+                   help='Preload the entire spectrogram dataset into RAM')
     return p.parse_args()
 
 
@@ -137,7 +140,7 @@ def train_epoch(model, loader, opt, loss_fn, aug: SpecAugment, mixup_alpha: floa
         if mixup_alpha > 0:
             xb, y_a, y_b, lam = mixup(xb, yb, mixup_alpha)
         opt.zero_grad()
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=torch.cuda.is_available()):
+        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=torch.cuda.is_available()):
             out = model(xb)
             if mixup_alpha > 0:
                 # one-hot encode then mix → soft label matrix [N,C]
@@ -169,7 +172,7 @@ def eval_epoch(model, loader, loss_fn, return_preds: bool = False):
         for xb, yb in loader:
             xb = xb.to(DEVICE, non_blocking=True, memory_format=torch.channels_last)
             yb = yb.to(DEVICE, non_blocking=True)
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=torch.cuda.is_available()):
+            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=torch.cuda.is_available()):
                 out = model(xb)
                 pred = out.argmax(1)
                 pred_cpu = pred.cpu()
@@ -190,12 +193,15 @@ def main():
     args = parse_args()
     cfg = resolve_cfg(args.cfg, args.set)
 
+    # honour in-memory flag (CLI overrides YAML)
+    cfg['in_memory'] = args.in_memory or cfg.get('in_memory', False)
+
     run_id = datetime.datetime.now().strftime(f"%Y%m%d_%H%M_02_train_vit_landing_digit")
     run_dir = Path('results') / 'runs' / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # Dataset
-    ds = SpectrogramDataset(cfg['dataset_dir'])
+    ds = SpectrogramDataset(cfg['dataset_dir'], in_memory=cfg['in_memory'])
     groups = ds.meta['subject'].values
 
     # ------------------------------------------------------------------
@@ -236,26 +242,34 @@ def main():
     for fold, (tr_idx, va_idx) in enumerate(logo_splits):
         if cfg.get('max_folds') and fold >= cfg['max_folds']:
             break
+        # Windows + in_memory ===> must use single-worker to avoid pickle
+        # errors when spawning. Force num_workers = 0.
+        if cfg.get('in_memory') and os.name == 'nt':
+            if cfg.get('num_workers', 4) != 0:
+                print('[INFO] Overriding num_workers → 0  (Windows + in_memory)')
+            cfg['num_workers'] = 0
+
         nw = int(cfg.get('num_workers', 4))
-        tr_ld = DataLoader(
-            Subset(ds, tr_idx),
+
+        # Define DataLoader kwargs dynamically to satisfy PyTorch constraints
+        dl_common = dict(
             batch_size=cfg['batch_size'],
-            shuffle=True,
-            num_workers=nw,
             pin_memory=True,
-            persistent_workers=True,
-            prefetch_factor=4,
-            drop_last=False,
         )
-        va_ld = DataLoader(
-            Subset(ds, va_idx),
-            batch_size=cfg['batch_size'],
-            shuffle=False,
-            num_workers=max(1, nw//2),
-            pin_memory=True,
-            persistent_workers=True,
-            prefetch_factor=4,
-        )
+
+        def make_loader(indices, *, shuffle: bool):
+            kwargs = dl_common.copy()
+            kwargs['shuffle'] = shuffle
+            kwargs['num_workers'] = nw if shuffle else max(0, nw // 2)
+
+            # persistent_workers & prefetch_factor only valid when num_workers > 0
+            if kwargs['num_workers'] > 0:
+                kwargs['persistent_workers'] = True
+                kwargs['prefetch_factor'] = 4
+            return DataLoader(Subset(ds, indices), **kwargs)
+
+        tr_ld = make_loader(tr_idx, shuffle=True)
+        va_ld = make_loader(va_idx, shuffle=False)
 
         # class weights from training subset
         y_train = ds.meta.iloc[tr_idx]['_y'].to_numpy()

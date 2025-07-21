@@ -85,10 +85,4 @@ time_mask_frac:
 freq_mask_frac:
   method: uniform
   low: 0.05
-  high: 0.20
-
-# --- throughput tuning ---
-
-num_workers:
-  method: categorical
-  choices: [8, 12] 
+  high: 0.20 

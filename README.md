@@ -373,8 +373,5 @@ scripts/
 * **Parallel sweeps**: `run_sweep.py` is sequential by design; add a `--workers N` flag and use `concurrent.futures` for multi-GPU setups.
 * **New metrics**: extend the `summary` dict – TXT reports remain in sync because they are always generated from JSON.
 
-PRs welcome – happy decoding!
-
-
 
 conda activate torcheeg-env
