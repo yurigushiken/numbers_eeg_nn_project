@@ -34,7 +34,9 @@ Engines currently available
 |----------|-----------------------------------------------|-------|
 | `cnn`    | Raw time-series Epochs                        | EEGNet family (`model_name`: `eegnet`, `eegnet_se`, `multi_scale_cnn`) |
 | `hybrid` | Raw time-series Epochs                        | CwA-Transformer (channel-wise CNN + Transformer) |
-| `dual_stream` | Pre-processed time-series **+** spectrogram (`.npy`) | Late-fusion CNN: 1-D Multi-Scale CNN + 2-D spectrogram CNN |
+| `dual_stream` | Pre-processed time-series **+** spectrogram (`.npy`) | Late-fusion CNN: 1-D Multi-Scale CNN + 2-D spectrogram CNN.
+  • **V2 (2025-07-31)** now supports an *architecture switch* (`spec_arch`): choose between the original *custom* 2-D CNN **or** an ImageNet-pre-trained **ResNet-18** backend via a single YAML flag.
+  • Data representation is also tunable: four offline-generated spectrogram variants (`128-16`, `128-32`, `64-8`, `256-32`).
 | `cnn_spectrogram` | 128 × 128 CWT spectrograms                 | Image-classification CNN baseline |
 
 All three engines are launched through `train.py`.  Internally they all call the
@@ -79,13 +81,23 @@ Live epoch logs appear when you call `python` directly.  If you prefer to use
 ### Pre-processing for the Dual-Stream engine
 
 Before any Dual-Stream training run you must convert the curated `.fif` files
-(one-time only):
+(one-time only).  **V2 tip:** you can generate *multiple* spectrogram datasets in one go by
+varying `--n-fft` and `--hop-length`:
 
 ```powershell
-python scripts/preprocess_for_dual_stream.py \
-       --input-dir data_preprocessed/acc_1_dataset \
-       --output-dir data_dual_stream/acc_1_dataset
-```
+# Baseline (balanced)
+python scripts/preprocess_for_dual_stream.py --input-dir data_preprocessed/acc_1_dataset \
+       --output-dir data_dual_stream/acc_1_dataset_128-16 --n-fft 128 --hop-length 16
+# Higher temporal resolution
+python scripts/preprocess_for_dual_stream.py --input-dir data_preprocessed/acc_1_dataset \
+       --output-dir data_dual_stream/acc_1_dataset_64-8  --n-fft 64  --hop-length 8
+# Lower temporal, higher freq resolution
+python scripts/preprocess_for_dual_stream.py --input-dir data_preprocessed/acc_1_dataset \
+       --output-dir data_dual_stream/acc_1_dataset_128-32 --n-fft 128 --hop-length 32
+# Finest frequency bins
+python scripts/preprocess_for_dual_stream.py --input-dir data_preprocessed/acc_1_dataset \
+       --output-dir data_dual_stream/acc_1_dataset_256-32 --n-fft 256 --hop-length 32
+
 
 Repeat for `all_trials_dataset` if required.  The Dual-Stream configs then use
 
@@ -183,9 +195,9 @@ Grid-sweep controller was deprecated.  Use Optuna instead:
 python scripts/optuna_tune.py `
        --task  landing_digit `
        --engine dual_stream `
-       --base  configs/landing_digit/dual_stream_base_nf4_all.yaml `
-       --space configs/landing_digit/optuna_space_dual_stream.yaml `
-       --db    "sqlite:///optuna_studies/landing_digit_dual_stream_nf4_all-01.db" `
+       --base  configs/landing_digit/dual_stream_base_nf4_acc1.yaml `
+       --space configs/landing_digit/optuna_space_dual_stream_v2.yaml `
+       --db    "sqlite:///optuna_studies/landing_digit_dual_stream-acc1-nf4-02.db" `
        --trials 36
 ```
 

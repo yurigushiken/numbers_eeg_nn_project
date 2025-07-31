@@ -1,15 +1,15 @@
-# Base configuration for the Dual-Stream CNN using 4-fold CV on the "all_trials" dataset.
-# UPDATED to support dynamic data loading and configurable spectrogram architectures.
+# Base configuration for the Dual-Stream CNN using 4-fold CV on the "acc_1" dataset.
+# This file is ready to be used with optuna_space_dual_stream_v2.yaml
 model_name: dual_stream
 
 # --- Data Loading ---
 # The dataset directory is now constructed dynamically.
-# Optuna will vary `dataset_name` and `spec_config_name`.
+# Optuna can vary `dataset_name` and `spec_config_name`.
 dataset_dir_base: "data_dual_stream" 
-dataset_name: "all_trials_dataset"  # Default to all_trials for this config file
+dataset_name: "acc_1_dataset"      # Default to acc_1 for this config file
 spec_config_name: "128-16"         # A sensible default
 in_memory: true
-n_folds: 4
+n_folds: 4                         # Use 4-fold Group-Aware cross-validation
 
 # --- Training ---
 batch_size: 32

@@ -38,6 +38,13 @@ try:
 except ImportError:
     timm = None
 
+# New imports for pre-trained models
+try:
+    from torchvision.models import resnet18, ResNet18_Weights
+except ImportError:
+    resnet18 = None
+    ResNet18_Weights = None
+
 
 # --- Raw EEG Model Builders ---
 
@@ -87,6 +94,48 @@ def build_cwat(cfg: Dict[str, Any], num_classes: int, C: int, T: int) -> nn.Modu
         enc_stride=cfg.get("enc_stride", 2),
     )
 
+def _build_custom_spec_stream(spec_config: dict, num_channels: int) -> tuple[nn.Module, int]:
+    """Builds the original, custom 2D CNN for spectrograms."""
+    spec_channels = spec_config.get('channels', [32, 64])
+    model = nn.Sequential(
+        nn.Conv2d(num_channels, spec_channels[0], kernel_size=3, padding=1),
+        nn.GroupNorm(1, spec_channels[0]),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
+        nn.Conv2d(spec_channels[0], spec_channels[1], kernel_size=3, padding=1),
+        nn.GroupNorm(1, spec_channels[1]),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
+        nn.AdaptiveAvgPool2d((1, 1)),
+        nn.Flatten()
+    )
+    feature_dim = spec_channels[1]
+    return model, feature_dim
+
+def _build_pretrained_spec_stream(arch: str, use_pretrained: bool, num_channels: int) -> tuple[nn.Module, int]:
+    """Builds a spectrogram stream from a pre-trained torchvision model."""
+    if arch == "resnet18":
+        if resnet18 is None:
+            raise ImportError("torchvision is not installed or doesn't have resnet18.")
+        weights = ResNet18_Weights.IMAGENET1K_V1 if use_pretrained else None
+        model = resnet18(weights=weights)
+        feature_dim = model.fc.in_features
+        # Replace final layer to make it a feature extractor
+        model.fc = nn.Identity()
+    else:
+        raise ValueError(f"Unsupported spectrogram architecture: {arch}")
+
+    # Create the projection layer to handle N-channel input
+    projection_layer = nn.Conv2d(num_channels, 3, kernel_size=1, stride=1, padding=0)
+
+    # Combine projection and the pre-trained model
+    full_stream = nn.Sequential(
+        projection_layer,
+        model
+    )
+    return full_stream, feature_dim
+
+
 def build_dual_stream_cnn(cfg: Dict[str, Any], num_classes: int, C: int, T: int) -> nn.Module:
     if DualStreamCNN is None:
         raise ImportError("DualStreamCNN not found. Check code/models/dual_stream_cnn.py")
@@ -98,12 +147,20 @@ def build_dual_stream_cnn(cfg: Dict[str, Any], num_classes: int, C: int, T: int)
     spec_config = cfg.get('spec_stream_config', {})
     fusion_config = cfg.get('fusion_head_config', {})
 
+    # --- Build the Spectrogram Stream ---
+    spec_arch = spec_config.get("arch", "custom")
+    if spec_arch == "custom":
+        spec_stream_model, spec_feature_dim = _build_custom_spec_stream(spec_config, C)
+    else:
+        use_pretrained = spec_config.get("pretrained", True)
+        spec_stream_model, spec_feature_dim = _build_pretrained_spec_stream(spec_arch, use_pretrained, C)
+
     return DualStreamCNN(
         ts_config=ts_config,
-        spec_config=spec_config,
+        spec_stream_model=spec_stream_model,
+        spec_feature_dim=spec_feature_dim,
         fusion_config=fusion_config,
         num_classes=num_classes,
-        num_channels=C,
     )
 
 RAW_EEG_MODELS = {
@@ -128,9 +185,6 @@ def build_timm_model(cfg: Dict[str, Any], num_classes: int) -> nn.Module:
 
 # --- Augmentation Builders ---
 
-# These are the original, self-contained augmentation classes from the project.
-# They are being restored here to remove the dependency on a specific torcheeg
-# version, which was causing the TypeError.
 class ComposeT:
     def __init__(self, ts): self.ts = ts
     def __call__(self, x):
@@ -182,7 +236,6 @@ def build_raw_eeg_aug(cfg: Dict[str, Any], T: int):
 
 def build_spectrogram_aug(cfg: Dict[str, Any], T: int):
     # This is a simplified version of SpecAugment
-    # In a real scenario, you might use a library or a more robust implementation
     return ComposeT([
         RTMask(p=cfg.get('freq_mask_p', 0.0), frac=cfg.get('freq_mask_frac', 0.0)),
         RTMask(p=cfg.get('time_mask_p', 0.0), frac=cfg.get('time_mask_frac', 0.0)),

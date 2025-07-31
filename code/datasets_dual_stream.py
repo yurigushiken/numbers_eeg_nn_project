@@ -68,7 +68,15 @@ class DualStreamPreprocessedDataset(BaseDataset):
     """
     def __init__(self, cfg, label_fn):
         super().__init__(cfg, label_fn)
-        self.root = Path(self.cfg["dataset_dir"])
+        
+        # Dynamically construct the dataset directory path
+        dataset_name = self.cfg.get("dataset_name", "acc_1_dataset") 
+        spec_config_name = self.cfg.get("spec_config_name", "128-16")
+        full_dataset_name = f"{dataset_name}_{spec_config_name}"
+        self.root = Path(self.cfg["dataset_dir_base"]) / full_dataset_name
+        
+        print(f"Loading preprocessed dataset from: {self.root}")
+
         self.meta = pd.read_feather(self.root / "metadata.feather")
         
         self.ts_dir = self.root / "ts_data"

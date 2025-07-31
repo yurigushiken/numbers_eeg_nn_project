@@ -24,7 +24,7 @@ sys.path.append(str(project_root))
 
 warnings.filterwarnings("ignore", category=UserWarning, module='mne')
 
-def generate_spectrogram(ts_tensor: torch.Tensor, n_fft: int = 128, hop_length: int = 16) -> torch.Tensor:
+def generate_spectrogram(ts_tensor: torch.Tensor, n_fft: int, hop_length: int) -> torch.Tensor:
     """Generates a log-spectrogram from a multi-channel time-series tensor."""
     spectrogram_transform = T.Spectrogram(
         n_fft=n_fft,
@@ -39,6 +39,8 @@ def main(args):
     """Main processing function."""
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
+    n_fft = args.n_fft
+    hop_length = args.hop_length
 
     if not input_dir.exists():
         print(f"Error: Input directory not found at {input_dir}")
@@ -47,6 +49,7 @@ def main(args):
     print(f"--- Preprocessing for Dual-Stream Engine ---")
     print(f"Input FIF directory: {input_dir}")
     print(f"Output directory:    {output_dir}")
+    print(f"Spectrogram params:  n_fft={n_fft}, hop_length={hop_length}")
 
     # Create output directories
     ts_dir = output_dir / "ts_data"
@@ -109,7 +112,7 @@ def main(args):
         
         # Generate and save spectrogram
         ts_tensor = torch.from_numpy(ts_data)
-        spec_tensor = generate_spectrogram(ts_tensor, n_fft=128, hop_length=16)
+        spec_tensor = generate_spectrogram(ts_tensor, n_fft=n_fft, hop_length=hop_length)
         spec_data = spec_tensor.numpy()
         
         spec_path = spec_dir / f"{idx}.npy"
@@ -123,14 +126,9 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess .fif files for the Dual-Stream engine.")
     parser.add_argument("--input-dir", type=str, required=True, help="Directory containing the input .fif files (e.g., data_preprocessed/acc_1_dataset).")
-    parser.add_argument("--output-dir", type=str, required=True, help="Directory to save the processed .npy and .feather files (e.g., data_dual_stream/acc_1_dataset).")
-    
-    # For testing in an interactive environment like VSCode, you can uncomment these lines:
-    # args = parser.parse_args([
-    #     "--input-dir", "data_preprocessed/acc_1_dataset",
-    #     "--output-dir", "data_dual_stream/acc_1_dataset"
-    # ])
-    # main(args)
+    parser.add_argument("--output-dir", type=str, required=True, help="Directory to save the processed .npy and .feather files (e.g., data_dual_stream/acc_1_dataset_128-16).")
+    parser.add_argument("--n-fft", type=int, default=128, help="FFT window size for spectrogram generation.")
+    parser.add_argument("--hop-length", type=int, default=16, help="Hop length for spectrogram generation.")
     
     args = parser.parse_args()
     main(args)
