@@ -1,276 +1,192 @@
 #!/usr/bin/env python
-"""Universal Optuna wrapper around the existing *02_train_decoder_*.py* scripts.
+"""Unified Optuna tuner for any task / engine pair.
 
-Usage (PowerShell):
-  conda activate torcheeg-env
-  python scripts/optuna_tune.py \
-      --decoder code/02_train_decoder_direction_binary.py \
-      --base    configs/direction_binary/base.yaml \
-      --study   sqlite:///direction_optuna.db \
-      --trials  40
-
-The script
-  • defines a fixed search-space of nine hyper-parameters (see PARAM_RANGES).
-  • for every Optuna trial it spawns the decoder as a subprocess passing the
-    sampled parameters via --set k=v …
-  • reads *summary_*.json* from the newly created *results/runs/<RUN_ID>/*
-    directory and returns `mean_acc` as the objective value to maximise.
-  • is fully resumable thanks to the SQLite storage backend.
-  • writes interactive Plotly HTML plots to *results/optuna_plots/* when done.
-
-Nothing inside the decoders is modified – this is Phase-1 “wrapper mode”.
+Example:
+    python scripts/optuna_tune.py \
+        --task landing_digit \
+        --engine vit \
+        --base  configs/landing_digit/base.yaml \
+        --space configs/landing_digit/optuna_space.yaml \
+        --db    sqlite:///optuna_studies/landing_digit_vit.db \
+        --trials 50
 """
+
 from __future__ import annotations
 
-import argparse
-import csv
-import datetime
-import json
-import subprocess
-import sys
-import textwrap
-import time
-import yaml
-import optuna
-import optuna.visualization
-import plotly
+import argparse, yaml, json, sys, time, datetime, os
 from pathlib import Path
-import sys as _sys
-from pathlib import Path as _P
-# ensure 'code' dir is on sys.path so we can import eeg_train from anywhere
-proj_root = _P(__file__).resolve().parent.parent
-code_dir = proj_root / 'code'
-if str(code_dir) not in _sys.path:
-    _sys.path.insert(0, str(code_dir))
+from typing import Dict, Any
 
-import eeg_train as et  # shared engine, now resolvable
-import importlib
-from typing import Dict, Any # Added missing import
+# -----------------------------------------------------------------------------
+# Ensure project root and code/ are on sys.path so that `import tasks` and
+# `import engines` resolve correctly when this script is executed via an
+# absolute path (Python adds only the *script's* directory by default).
+# -----------------------------------------------------------------------------
+proj_root = Path(__file__).resolve().parent.parent
+code_dir = proj_root / "code"
+for p in (str(proj_root), str(code_dir)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
-# --- Constants ---
-# All hyper-parameter ranges must be defined here for Optuna to sample from.
-# The names must match the keys in eeg_train.CANONICAL_DEFAULTS or the decoder's base YAML.
-PARAM_RANGES = {
-    # name        : (type, low, high, [scale]) or (type, [choices])
-    "lr"            : ("float", 1e-5, 1e-3, "log"),
-    "batch_size"    : ("categorical", [32, 64, 128]),
-    "mixup_alpha"   : ("float", 0.0, 0.5),
-    "time_mask_p"   : ("float", 0.0, 0.8),
-    "time_mask_frac": ("float", 0.05, 0.30),
-    "chan_mask_p"   : ("float", 0.0, 0.8),
-    "chan_mask_ratio": ("float", 0.05, 0.30),
-    "noise_std"     : ("float", 0.0, 0.05),
-    "channel_dropout_p": ("float", 0.0, 0.5),
-    "shift_p"       : ("float", 0.0, 1.0),
-    "shift_min_frac": ("float", 0.001, 0.01),
-    "shift_max_frac": ("float", 0.02, 0.08),
-    "scale_p"       : ("float", 0.0, 1.0),
-    "scale_min"     : ("float", 0.7, 0.95),
-    "scale_max"     : ("float", 1.05, 1.3),
-    "early_stop"    : ("categorical", [10, 15, 20]), # make explicit if it's sweepable
-    "epochs"        : ("categorical", [50, 80, 100]), # make explicit if it's sweepable
-}
+import optuna
 
-# --- CLI arguments ---
-ap = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
-                             description=textwrap.dedent("""Universal Optuna wrapper around the existing *02_train_decoder_*.py* scripts."""))
-ap.add_argument("--decoder", type=Path, required=True, help="Path to the decoder script (e.g., code/02_train_decoder_direction_binary.py)")
-ap.add_argument("--base", type=Path, required=True, help="Path to the base YAML config file")
-ap.add_argument("--study", type=str, required=True, help="Optuna study name or path to SQLite DB (e.g., sqlite:///db.sqlite)")
-ap.add_argument("--trials", type=int, default=20, help="Number of Optuna trials (default 20)")
-ap.add_argument("--space", type=Path, help="Optional YAML file describing the search space (overrides built-in PARAM_RANGES)")
-ap.add_argument("--sampler-seed", type=int, help="Seed for TPESampler (optional)")
-ap.add_argument("--set", nargs="*", metavar="KEY=VAL", help="Static overrides passed to every trial, e.g. --set max_folds=3 epochs=80")
+# ------------------------------------------------------------------
+# Ensure that any pre-imported 'utils' from external packages does not
+# shadow the project-local `utils` package (which contains plots.py etc.).
+# Some third-party libraries imported by Optuna may have already imported
+# an unrelated package named "utils".  If that happens, our subsequent
+# `import utils.plots` will fail.  We proactively remove such a module
+# unless it comes from this project root.
+# ------------------------------------------------------------------
+if 'utils' in sys.modules:
+    _u_mod = sys.modules['utils']
+    u_path = getattr(_u_mod, '__file__', '') or ''
+    if proj_root.as_posix() not in u_path.replace('\\', '/'):
+        # Remove the foreign module so Python can import our local one
+        del sys.modules['utils']
 
-args = ap.parse_args()
+import tasks as task_reg
+import engines as engine_reg
+from utils.summary import write_summary
 
-# -------------------------------------------------------------
-# Optional: override PARAM_RANGES via YAML search-space file
-# -------------------------------------------------------------
 
-def _load_yaml_space(fp: Path):
-    import yaml, math
-    txt = fp.read_text()
-    raw = yaml.safe_load(txt) or {}
-    space: dict[str, tuple] = {}
-    for k, v in raw.items():
-        method = v.get('method')
-        if method in ('uniform', 'log_uniform'):
-            low, high = float(v['low']), float(v['high'])
-            scale = 'log' if method == 'log_uniform' else None
-            space[k] = ('float', low, high, scale) if scale else ('float', low, high)
-        elif method == 'categorical':
-            space[k] = ('categorical', v['choices'])
+# -----------------------------------------------------------------------------
+# Global setup (argument parsing, etc.) needs to be at the top level
+# so the `objective` function can access `args` and other globals.
+# -----------------------------------------------------------------------------
+
+p = argparse.ArgumentParser(description="Optuna tuner (unified)")
+p.add_argument("--task", required=True, help="Task name registered in tasks/")
+p.add_argument("--engine", required=True, choices=list(engine_reg.ENGINES))
+p.add_argument("--base", type=Path, required=True, help="Base YAML path")
+p.add_argument("--space", type=Path, required=True, help="Optuna search-space YAML")
+p.add_argument("--db", required=True, help="Optuna SQLite URI, e.g. sqlite:///my.db")
+p.add_argument("--trials", type=int, default=20)
+args = p.parse_args()
+
+space = yaml.safe_load(args.space.read_text()) or {}
+STUDY_TAG = Path(args.db).stem
+OPTUNA_RUN_ROOT = Path("results") / "optuna" / STUDY_TAG
+OPTUNA_RUN_ROOT.mkdir(parents=True, exist_ok=True)
+
+label_fn = task_reg.get(args.task)
+engine_run = engine_reg.get(args.engine)
+
+
+# -----------------------------------------------------------------------------
+# Objective function for Optuna
+# -----------------------------------------------------------------------------
+
+def build_cfg(base_yaml_path: Path, overrides: Dict[str, Any]) -> Dict[str, Any]:
+    """Builds a config dict from a base YAML and Optuna overrides."""
+    cfg = yaml.safe_load(base_yaml_path.read_text()) or {}
+    cfg.update(overrides)
+    return cfg
+
+def objective(trial: optuna.Trial):
+    sampled: Dict[str, Any] = {}
+    for name, spec in space.items():
+        m = spec["method"]
+        if m in ("uniform", "float"):
+            sampled[name] = trial.suggest_float(name, spec["low"], spec["high"])
+        elif m == "log_uniform":
+            sampled[name] = trial.suggest_float(name, spec["low"], spec["high"], log=True)
+        elif m == "int":
+             sampled[name] = trial.suggest_int(name, spec["low"], spec["high"])
+        elif m == "categorical":
+            sampled[name] = trial.suggest_categorical(name, spec["choices"])
         else:
-            raise ValueError(f"Unknown method '{method}' for param {k}")
-    return space
+            raise ValueError(f"Unsupported method {m} for param {name}")
 
-if args.space:
-    PARAM_RANGES = _load_yaml_space(args.space)
+    cfg = build_cfg(args.base, sampled)
+    cfg["task"] = args.task
+    ds_tag = Path(cfg.get("dataset_dir", "unknown")).name
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    cfg["run_dir"] = str(
+        OPTUNA_RUN_ROOT / f"{ts}_{args.task}_{args.engine}_{ds_tag}_t{trial.number:03d}"
+    )
+    cfg["study"] = STUDY_TAG
+    cfg["trial_id"] = trial.number
 
-# parse fixed overrides (args.set)
-fixed_overrides = {}
-if args.set:
-    for kv in args.set:
-        if "=" not in kv:
-            sys.exit("--set expects KEY=VAL pairs, got {kv}")
-        k, v = kv.split('=', 1)
-        fixed_overrides[k] = yaml.safe_load(v)
-
-# -------------------------------------------------------------
-# Optuna objective
-# -------------------------------------------------------------
-
-# The objective receives a `trial` object and returns the score to optimize.
-# This is what Optuna calls for each parameter set.
-
-def objective_factory(task_module_name: str, decoder_path: Path, base_yaml: Path, fixed: Dict[str, Any]):
-    """Return a callable `objective(trial)` for Optuna."""
-    # ---------------------------------------------------------------------------
-    # HACK: dynamic import of task module to get label_fn and BASE_YAML
-    # This is a temporary hack for Phase 1. In Phase 2, the `run_loso` call
-    # will be direct within this script, and BASE_YAML will be passed from CLI.
-    # ---------------------------------------------------------------------------
-    task_module = importlib.import_module(task_module_name)
-
-    def objective(trial: optuna.Trial):
-        params = {}
-        # Sample hyper-parameters from predefined ranges
-        for name, spec in PARAM_RANGES.items():
-            if name in fixed: # Fixed overrides take precedence
-                params[name] = fixed[name]
-                continue
-            
-            p_type = spec[0]
-            if p_type == "float":
-                low, high = spec[1], spec[2]
-                log_scale = spec[3] == "log" if len(spec) > 3 else False
-                params[name] = trial.suggest_float(name, low, high, log=log_scale)
-            elif p_type == "int": # for integer values, e.g., for model architectures
-                low, high = spec[1], spec[2]
-                params[name] = trial.suggest_int(name, low, high)
-            elif p_type == "categorical":
-                choices = spec[1]
-                params[name] = trial.suggest_categorical(name, choices)
-            else:
-                raise ValueError(f"Unknown parameter type: {p_type}")
-
-        # -----------------------------------------------------
-        # Path A: decoder exposes label_fn → use eeg_train
-        # Path B: no label_fn (e.g. ViT script) → spawn subprocess
-        # -----------------------------------------------------
-
-        if hasattr(task_module, 'label_fn'):
-            # Handle special param conversion
-            if 'betas' in params and not isinstance(params['betas'], (list, tuple)):
-                beta2 = float(params.pop('betas'))
-                params['betas'] = [0.9, beta2]
-
-            task_defaults = getattr(task_module, 'TASK_DEFAULTS', None)
-            cfg = et.resolve_cfg(base_yaml, task_defaults=task_defaults)
-            cfg.update(params)
-            cfg["optuna_trial_id"] = trial.number
-            cfg["optuna_params"] = params.copy()
+    # Build prettier hyper-parameter lines for plots
+    plot_lines = []
+    for name, spec in space.items():
+        val = sampled.get(name, cfg.get(name))
+        if val is None: continue
+        if spec["method"] in {"uniform", "log_uniform"}:
+            lo, hi = spec["low"], spec["high"]
             try:
-                mean_acc = et.run_loso(cfg, task_module.label_fn, trial=trial)
-                return mean_acc
-            except Exception as e:
-                print(f"Trial {trial.number} failed with exception: {e}")
-                return float('nan')
-
-        # ---------- subprocess fallback ----------
-        import subprocess, json, glob, os, time
-        start_time = time.time()
-        # build --set string list
-        if 'betas' in params and not isinstance(params['betas'], (list, tuple)):
-            beta2 = float(params.pop('betas'))
-            params['betas'] = [0.9, beta2]
-        set_list = [f"{k}={v}" for k, v in params.items()]
-        # build command
-        cmd = [sys.executable, str(decoder_path), '--cfg', str(base_yaml)]
-        if set_list:
-            cmd += ['--set'] + set_list
-        proc = subprocess.run(cmd)
-        if proc.returncode != 0:
-            print(f"Trial {trial.number} subprocess failed (exit {proc.returncode})")
-            print(proc.stdout)
-            print(proc.stderr)
-            return float('nan')
-
-        # Find newest summary_*.json written after start_time
-        summary_files = sorted(Path('results').glob('runs/*/summary_*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
-        for fp in summary_files:
-            if fp.stat().st_mtime >= start_time:
-                try:
-                    data = json.loads(fp.read_text())
-                    return float(data.get('mean_acc', 'nan'))
-                except Exception as e:
-                    print(f"Trial {trial.number}: failed reading summary {fp}: {e}")
-                    break
-        print(f"Trial {trial.number}: no summary found")
-        return float('nan')
-
-    return objective
-
-# --- Main execution ---
-if __name__ == '__main__':
-    # Resolve paths for the specific task
-    # This needs to be done dynamically based on what the user passes to --decoder and --base
-    # For now, let's assume the user specifies a 'task' argument or we infer it
-    # We need a way to map from a task name to its decoder script and base YAML.
-    # For this example, let's hardcode one task for simplicity to test the new flow.
-    # A more robust solution would involve a lookup table or argparse arguments.
-
-    # --- TEMPORARY: Hardcode one task for testing Phase 2 integration ---
-    # In a real scenario, these would come from CLI args or a more complex task selection mechanism.
-    # For now, we'll pick the direction_binary as our test case.
-    
-    # This part replaces --decoder and --base flags
-    decoder_script_path = args.decoder # Use args.decoder
-    base_yaml_path = args.base # Use args.base
-
-    # Dynamic import for label_fn and BASE_YAML path
-    sys.path.append(str(decoder_script_path.parent))
-    task_module_name = decoder_script_path.stem
-    task_module = importlib.import_module(task_module_name)
-
-    # The objective factory now takes the task module name and base YAML path
-    objective = objective_factory(task_module_name, decoder_script_path, base_yaml_path, fixed_overrides)
-
-    # Optuna study creation and optimization (remains largely same)
-    study = optuna.create_study(direction="maximize",
-                                study_name=str(args.study),
-                                sampler=optuna.samplers.TPESampler(seed=args.sampler_seed) if args.sampler_seed else None,
-                                storage=args.study,
-                                load_if_exists=True)
-
-    print(f"\nStarting Optuna study '{study.study_name}' – adding {args.trials} trials…")
-    study.optimize(objective, n_trials=args.trials, gc_after_trial=True)
-
-    print("\nStudy finished. Best trial:")
-    print(f"  Value: {study.best_value:.2f}%")
-    print(f"  Params: {study.best_params}")
-
-    # Plotting
-    study_dir = Path("results/optuna_plots") / study.study_name
-    study_dir.mkdir(parents=True, exist_ok=True)
+                p = (val - lo) / (hi - lo)
+                bar_pos = int(p * 10)
+            except Exception:
+                bar_pos = 0
+            bar = "|" + "-" * bar_pos + "●" + "-" * (10 - bar_pos) + "|"
+            plot_lines.append(f"{name}: {lo:.1e} {bar} {hi:.1e}\nval: {val:.1e}")
+        elif spec["method"] == "categorical":
+            choices = spec["choices"]
+            choices_str = [str(c) if c != val else f"[{c}]" for c in choices]
+            plot_lines.append(f"{name}: " + " | ".join(choices_str))
+    cfg["plot_hyper_lines"] = plot_lines
 
     try:
-        import plotly.io as pio
-        fig_history = optuna.visualization.plot_optimization_history(study)
-        plotly.offline.plot(fig_history, filename=str(study_dir / "optimization_history.html"), auto_open=False)
-        pio.write_image(fig_history, str(study_dir / "optimization_history.png"), format="png")
-        print(f"Optimization history plots saved to {study_dir}")
-
-        fig_param_importances = optuna.visualization.plot_param_importances(study)
-        plotly.offline.plot(fig_param_importances, filename=str(study_dir / "param_importances.html"), auto_open=False)
-        pio.write_image(fig_param_importances, str(study_dir / "param_importances.png"), format="png")
-        print(f"Parameter importances plot saved to {study_dir}")
-
-        fig_slice = optuna.visualization.plot_slice(study)
-        plotly.offline.plot(fig_slice, filename=str(study_dir / "slice.html"), auto_open=False)
-        pio.write_image(fig_slice, str(study_dir / "slice.png"), format="png")
-        print(f"Slice plot saved to {study_dir}")
-
+        res = engine_run(cfg, label_fn)
+        summary = {
+            "run_id": ts,
+            **res,
+            "study": cfg.get("study"),
+            "trial_id": cfg.get("trial_id"),
+            "hyper": {
+                k: v for k, v in cfg.items()
+                if k not in {"dataset_dir", "run_dir", "plot_hyper_lines"}
+            },
+        }
+        write_summary(cfg["run_dir"], summary, args.task, args.engine)
+        return res["mean_acc"]
     except Exception as e:
-        print(f"Error generating plots: {e}") 
+        print(f"Trial {trial.number} failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return float('nan')
+
+# -----------------------------------------------------------------------------
+# Main execution block
+# -----------------------------------------------------------------------------
+
+def main():
+    """Sets up and runs the Optuna study."""
+    sampler = optuna.samplers.TPESampler(seed=42)
+    pruner = optuna.pruners.MedianPruner(n_warmup_steps=5)
+
+    study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner,
+                                study_name=STUDY_TAG, storage=args.db,
+                                load_if_exists=True)
+
+    print(f"Starting study {study.study_name} with {args.trials} trials…")
+    study.optimize(objective, n_trials=args.trials, gc_after_trial=True)
+
+    print("Best value", study.best_value, "Params", study.best_params)
+
+    # --- save Optuna summary plots ---
+    import plotly.io as pio, optuna.visualization as vis
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    plot_dir = Path("results") / "optuna_plots"
+    plot_ts_dir = plot_dir / f"{ts}_{args.task}_{args.engine}"
+    plot_ts_dir.mkdir(parents=True, exist_ok=True)
+
+    plot_funcs = {
+        "history": vis.plot_optimization_history,
+        "slice": vis.plot_slice,
+        "contour": vis.plot_contour,
+        "parallel": vis.plot_parallel_coordinate,
+    }
+
+    for name, fn in plot_funcs.items():
+        try:
+            fig = fn(study)
+            pio.write_image(fig, plot_ts_dir / f"{name}.png", scale=2)
+        except Exception as e:
+            print(f"Plot {name} failed: {e}")
+
+
+if __name__ == '__main__':
+    main()

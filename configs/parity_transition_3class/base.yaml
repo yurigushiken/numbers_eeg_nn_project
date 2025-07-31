@@ -1,6 +1,13 @@
+# File: configs/parity_transition_3class/cnn_base.yaml
+
+# Configuration for a baseline run of the standard CNN on the 3-class parity task.
+# This includes moderate, fixed regularization to establish a strong baseline.
+
+model_name: eegnet
+
 dataset_dir: data_preprocessed/acc_1_dataset
 
-## --- Training ---
+# --- Training ---
 batch_size: 32         # Smaller batch size for its regularizing effect
 lr: 1.0e-4             # A safe, conservative learning rate for stable training
 epochs: 100
@@ -11,7 +18,7 @@ shift_p: 0.5
 scale_p: 0.1
 noise_p: 0.3
 noise_std: 0.02
-mixup_alpha: 0.4       # A small amount of mixup
+mixup_alpha: 0.2       # A small amount of mixup
 time_mask_p: 0.1       # A small amount of time masking
 chan_mask_p: 0.1       # A small amount of channel masking
 channel_dropout_p: 0.2 # Added: A moderate amount of channel dropout

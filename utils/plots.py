@@ -112,8 +112,8 @@ def plot_confusion(
     else:
         fig.subplots_adjust(left=0.40)
 
-    fig.tight_layout(rect=[0.35, 0, 1, 1])
-    fig.savefig(outfile, dpi=300)
+    fig.tight_layout()
+    fig.savefig(outfile, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
 
@@ -166,6 +166,6 @@ def plot_curves(
         labels.extend(lbls)
     fig.legend(lines, labels, loc="lower right", fontsize=8, frameon=False)
 
-    fig.tight_layout(rect=[0.35, 0, 1, 1])
-    fig.savefig(outfile, dpi=300)
+    fig.tight_layout()
+    fig.savefig(outfile, dpi=300, bbox_inches='tight')
     plt.close(fig) 

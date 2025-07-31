@@ -102,10 +102,11 @@ def main():
     for idx, combo in enumerate(pending, 1):
         # Build command string
         set_args = " ".join(f"{k}={v}" for k, v in combo.items())
-        env_cmd = f"conda activate {args.env}; " if args.env else ""
-        cmd = (
-            f"{env_cmd}python {script} --cfg {args.base} --set {set_args}"
-        )
+        if args.env:
+            # Use `conda run -n` which works in one command across shells
+            cmd = f"conda run -n {args.env} python {script} --cfg {args.base} --set {set_args}"
+        else:
+            cmd = f"python {script} --cfg {args.base} --set {set_args}"
         print(f"\n[{idx}/{len(pending)}] Running: {cmd}\n")
         if args.dry:
             continue

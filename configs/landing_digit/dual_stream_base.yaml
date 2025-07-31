@@ -1,0 +1,46 @@
+# Base configuration for the Dual-Stream CNN on the landing_digit task.
+model_name: dual_stream
+dataset_dir: data_dual_stream/acc_1_dataset
+in_memory: true
+n_folds: 4
+
+
+# --- Spectrogram Generation ---
+spectrogram_n_fft: 128
+spectrogram_hop_length: 16
+
+# --- Training ---
+batch_size: 32
+lr: 1.0e-4
+epochs: 100
+early_stop: 15
+
+# --- Time-Series Stream (MultiScaleCNN) ---
+ts_stream_config:
+  # Let MultiScaleCNN output a feature vector, not logits
+  # The size should match the input to the fusion head.
+  kernel_sizes: [7, 11, 15, 19]
+  F1: 8
+  F2: 16
+  D: 2
+  kernel_2: 16
+  dropout: 0.5
+
+# --- Spectrogram Stream (2D CNN) ---
+spec_stream_config:
+  channels: [32, 64]
+
+# --- Fusion Head (MLP) ---
+fusion_head_config:
+  ts_feature_dim: 128 # The MultiScaleCNN will be configured to output this size
+  hidden_dim: 256
+  dropout: 0.5
+
+# --- Augmentations (applied only to the time-series) ---
+shift_p: 0.5
+scale_p: 0.1
+noise_p: 0.3
+noise_std: 0.02
+mixup_alpha: 0.2
+time_mask_p: 0.1
+chan_mask_p: 0.1

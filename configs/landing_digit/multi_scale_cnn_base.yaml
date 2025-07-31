@@ -1,0 +1,27 @@
+# --- Select and configure the new model ---
+model_name: multi_scale_cnn
+kernel_sizes: [7, 11, 15, 19, 23] # Example sizes, you can tune these
+
+dataset_dir: data_preprocessed/acc_1_dataset
+
+batch_size: 64
+lr: 1.0e-4
+epochs: 100
+early_stop: 15
+
+# Augmentations (kept standard for baseline)
+shift_p: 0.5
+shift_min_frac: 0.005
+shift_max_frac: 0.04
+scale_p: 0.5
+scale_min: 0.9
+scale_max: 1.1
+noise_p: 0.3
+noise_std: 0.02
+
+# Mixup & masking
+mixup_alpha: 0.0
+time_mask_p: 0.0
+time_mask_frac: 0.15
+chan_mask_p: 0.0
+chan_mask_ratio: 0.10 

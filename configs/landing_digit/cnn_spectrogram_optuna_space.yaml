@@ -1,0 +1,47 @@
+# Optuna search space for the CNN+Spectrogram engine.
+# This allows us to tune hyperparameters for models like ResNet, etc.
+
+# --- Model choice ---
+model_name:
+  type: categorical
+  choices: ["resnet18", "resnet34", "efficientnet_b0"]
+
+# --- Core training hyperparameters ---
+lr:
+  type: float
+  log: true
+  low: 1.0e-5
+  high: 1.0e-3
+
+batch_size:
+  type: int
+  low: 16
+  high: 64
+  step: 16
+
+weight_decay:
+  type: float
+  log: true
+  low: 1e-6
+  high: 1e-3
+
+# --- Data Augmentation (SpecAugment) ---
+# Time-masking parameters from the canonical optuna_space.yaml
+time_mask_p:
+  type: float
+  low: 0.0
+  high: 0.5
+time_mask_frac:
+  type: float
+  low: 0.05
+  high: 0.25
+
+# Frequency-masking specific to spectrograms
+freq_mask_p:
+  type: float
+  low: 0.0
+  high: 0.5
+freq_mask_frac:
+  type: float
+  low: 0.05
+  high: 0.25 
