@@ -1,3 +1,0 @@
-dataset_dir: data_preprocessed/all_trials_dataset
-
-include: base.yaml 

@@ -1,3 +1,0 @@
-# CNN base config – ACC=1 dataset
-
-include: base.yaml 

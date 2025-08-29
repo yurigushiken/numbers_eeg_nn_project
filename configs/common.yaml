@@ -1,3 +1,0 @@
-# values that many scripts may share
-early_stop: 20
-epochs: 120 
