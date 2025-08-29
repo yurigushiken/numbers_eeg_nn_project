@@ -1,0 +1,28 @@
+# Optuna search space for EEGNeX 45Hz Data - STAGE 1b: Refined Architecture Search
+# This search uses refined, data-driven ranges based on the results of the initial
+# architecture study to further hone in on the optimal core model.
+
+# --- Optimizer and Training Parameters ---
+lr:
+  method: log_uniform
+  low: 7.0e-4  # Refined Range: [0.0007, 0.0012]
+  high: 1.2e-3 # Previous top performers clustered at the high end.
+batch_size:
+  method: categorical
+  choices: [16, 32] # Testing if the trend toward larger batches continues.
+scheduler_patience:
+  method: int
+  low: 11
+  high: 14 # Expanding the search into the high-patience region that performed best.
+
+# --- Core EEGNeX Architectural Parameters ---
+filter_1:
+  method: categorical
+  choices: [16, 24, 32] # Expanding to test if a wider filter is even better.
+kernel_block_1_2:
+  method: categorical
+  choices: [64, 128] # Focusing on the longer kernels that were clear winners.
+drop_prob:
+  method: uniform
+  low: 0.3
+  high: 0.7 # Previous range was well-calibrated.

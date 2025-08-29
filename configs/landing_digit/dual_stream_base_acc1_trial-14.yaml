@@ -1,0 +1,50 @@
+# FILE: dual_stream_base_acc1_t014.yaml
+# LOSO configuration for the champion model from study landing_digit_dual_stream-acc1-nf4-03.
+# Original Trial ID: 14
+# Mean Accuracy (nf4): 27.39%
+
+model_name: dual_stream
+
+# --- Data Loading ---
+dataset_dir_base: "data_dual_stream"
+dataset_name: "acc_1_dataset"
+spec_config_name: "128-16"
+in_memory: true
+
+# --- Training ---
+batch_size: 8
+lr: 0.000424607
+epochs: 100
+early_stop: 15
+scheduler_patience: 10 # This was tuned
+
+# --- Time-Series Stream (MultiScaleCNN) ---
+ts_stream_config:
+  kernel_sizes: [7, 11, 15, 19]
+  F1: 4
+  F2: 16 # This is the default, F2 = 2 * F1
+  D: 4
+  kernel_2: 16
+  dropout: 0.5763900252272744
+
+# --- Spectrogram Stream (2D CNN) ---
+spec_stream_config:
+  arch: "custom"
+  pretrained: true # (Ignored for custom arch)
+  channels: [32, 64]
+  dropout: 0.24333184562734717 # (Used by custom arch)
+
+# --- Fusion Head (MLP) ---
+fusion_head_config:
+  ts_feature_dim: 128
+  hidden_dim: 128
+  dropout: 0.3455279309659699
+
+# --- Augmentations & Regularization ---
+# NOTE: These are the tuned values from the Optuna study
+mixup_alpha: 0.40486180811127925
+channel_dropout_p: 0.43627055274235454
+time_mask_p: 0.13670099521750015
+time_mask_frac: 0.15955151533249257
+freq_mask_p: 0.30496423592505656
+freq_mask_frac: 0.18436354253446982

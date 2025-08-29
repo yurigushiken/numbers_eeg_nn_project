@@ -1,0 +1,55 @@
+# Optuna search space for EEGNeX 45Hz Data - STAGE 3: Full Augmentation Optimization
+# This is the final tuning stage, focusing on finding the best regularization
+# strategy for our champion architecture.
+
+# --- MixUp Regularization ---
+mixup_alpha:
+  method: uniform
+  low: 0.0
+  high: 0.5
+
+# --- Channel Masking ---
+chan_mask_p:
+  method: uniform
+  low: 0.2
+  high: 0.7 # Widen the search for this powerful regularizer
+
+# --- Time Masking ---
+time_mask_p:
+  method: uniform
+  low: 0.2
+  high: 0.5
+time_mask_frac:
+  method: float
+  low: 0.05
+  high: 0.25
+
+# --- Gaussian Noise ---
+noise_p:
+  method: uniform
+  low: 0.0
+  high: 0.5
+noise_std:
+  method: float
+  low: 0.01
+  high: 0.05
+
+# --- Time Shifting (Jitter) ---
+shift_p:
+  method: uniform
+  low: 0.0
+  high: 0.5 # A wider range is fine to let Optuna decide
+shift_max_frac:
+  method: float
+  low: 0.01
+  high: 0.05
+
+# --- Amplitude Scaling ---
+scale_p:
+  method: uniform
+  low: 0.0
+  high: 0.3
+scale_max:
+  method: float
+  low: 1.1
+  high: 1.2

@@ -1,0 +1,76 @@
+# File: configs/landing_digit/optuna_space_dual_stream.yaml
+
+# REVISED: Now includes SpecAugment parameters for the spectrogram stream.
+# This is a comprehensive search space for the DualStreamCNN model.
+
+# --- Optimizer Parameters ---
+lr:
+  method: log_uniform
+  low: 1.0e-5
+  high: 1.0e-3
+
+# --- Training ---
+batch_size:
+  method: categorical
+  choices: [16, 32]
+
+# --- Time-Series Stream (MultiScaleCNN) ---
+ts_F1:
+  method: categorical
+  choices: [8, 16, 24]
+ts_D:
+  method: categorical
+  choices: [2, 4]
+ts_dropout:
+  method: uniform
+  low: 0.2
+  high: 0.7
+
+# --- Spectrogram Stream (2D CNN) ---
+spec_model_name:
+  method: categorical
+  choices: ["resnet18", "efficientnet_b0"]
+spec_dropout:
+  method: uniform
+  low: 0.1
+  high: 0.5
+
+# --- Fusion Head (MLP) ---
+fusion_hidden_dim:
+  method: categorical
+  choices: [128, 256, 512]
+fusion_dropout:
+  method: uniform
+  low: 0.2
+  high: 0.7
+
+# --- Augmentation & Regularization ---
+
+# For the Time-Series Stream
+mixup_alpha:
+  method: uniform
+  low: 0.0
+  high: 0.6
+channel_dropout_p:
+  method: uniform
+  low: 0.0
+  high: 0.5
+
+# For the Spectrogram Stream (SpecAugment)
+# Added: These parameters control the new, powerful augmentation on the 2D stream.
+time_mask_p:
+  method: uniform
+  low: 0.0
+  high: 0.5
+time_mask_frac:
+  method: float
+  low: 0.05
+  high: 0.25
+freq_mask_p:
+  method: uniform
+  low: 0.0
+  high: 0.5
+freq_mask_frac:
+  method: float
+  low: 0.05
+  high: 0.25

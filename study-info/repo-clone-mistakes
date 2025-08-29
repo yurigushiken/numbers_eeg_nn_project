@@ -1,0 +1,54 @@
+Key take-aways from the first attempt and what we would do differently if we started over.
+
+1. Read & reproduce upstream’s “happy path” first  
+   • DeepTransferEEG assumes:  
+     – Python 3.10 (as pinned in `environment.yml`)  
+     – you run every command **from the repo root** (`python -m tl.ttime …`) so that `tl` and `utils` are importable.  
+   • We dove straight into wiring it into our big project, so we hit a Python-3.11 wheel gap and later the `ModuleNotFoundError` chain.
+
+2. Keep vendor code isolated, don’t patch it until basic runs succeed  
+   • We edited `tl/utils/dataloader.py`, added relative-import fixes, etc.  
+   • Simpler: leave the submodule pristine; put our landing-digit loader in `third_party/DeepTransferEEG/custom/landing_digit_loader.py` and point `PYTHONPATH` at that folder. (DeepTransferEEG already supports “external loaders” through the `--data` flag if the module can be imported.)
+
+3. Create the required Conda env first, then integrate  
+   • We tried to install packages piecemeal inside an existing 3.11 env → wheel build failures (`learn2learn`).  
+   • Better: `conda env create -n deeptx-310 -f third_party/DeepTransferEEG/environment.yml`, verify `python -m tl.ttime --help` runs, **then** add extra libraries we need.
+
+4. Avoid complex PowerShell one-liners  
+   • PSReadLine kept truncating long commands.  
+   • Use:  
+     ```powershell
+     conda activate deeptx-310
+     cd third_party\DeepTransferEEG
+     $env:PYTHONPATH = "$PWD;$PWD\tl"
+     python -m tl.ttime --data BNCI2014001 --algo ea --epochs 1
+     ```  
+     or simply switch to the Anaconda Prompt (cmd).
+
+5. Pass the correct CLI flags  
+   • DeepTransferEEG uses `--data`, not `--dataset`; the unrecognised flag silently reverts to the default dataset. We burned time debugging “wrong dataset” side-effects.
+
+6. Wrap, don’t embed  
+   • Instead of importing `tl.ttime` from our script, spawn it as a subprocess exactly the way the README shows.  
+   • Add only two lines in our wrapper:  
+     ```python
+     deeptx_root = Path(__file__).parent / '../../third_party/DeepTransferEEG'
+     subprocess.run(
+         [sys.executable, '-m', 'tl.ttime',
+          '--data', 'landing_digit',
+          '--algo', transfer_alg, ...],
+         cwd=deeptx_root, env={**os.environ, 'PYTHONPATH': f'{deeptx_root};{deeptx_root / "tl"}'})
+     ```
+
+7. Verify with a micro-smoke test before the full fold loop  
+   • e.g. one subject pair and `--epochs 1` to catch import / path / flag errors quickly.
+
+If we restarted from scratch we would therefore:
+
+1. `git submodule add … third_party/DeepTransferEEG`  
+2. `conda env create -n deeptx-310 -f third_party/DeepTransferEEG/environment.yml`  
+3. Confirm `python -m tl.ttime --data BNCI2014001 --epochs 1` works **inside the repo**.  
+4. Add our `landing_digit_loader.py` in a separate folder, set `PYTHONPATH`, test with the same command but `--data landing_digit`.  
+5. Only then hook it into `02_train_decoder_…` via a thin subprocess wrapper, keeping the original CNN path untouched.  
+
+Following that sequence avoids every mistake we hit: wrong Python version, missing wheels, path confusion, flag typos, and unnecessary edits to vendor code.

@@ -1,0 +1,24 @@
+# Config for the CNN+Spectrogram engine on the Landing-Digit task
+
+# --- Dataset ---
+dataset_dir: data_spectrograms/landing_digit_cwt_128x128
+
+# --- Model ---
+model_name: resnet18
+img_size: 128
+
+# --- Training ---
+# Adjusted hyperparameters to combat overfitting observed in initial runs.
+# Lower LR, higher weight decay, and added SpecAugment.
+batch_size: 32
+lr: 1e-4             # Reduced from 1e-3 to encourage smoother learning.
+epochs: 80
+early_stop: 15
+weight_decay: 1e-4     # Increased from 1e-5 to add regularization.
+
+# --- Data Augmentation (SpecAugment) ---
+# Enabled to prevent overfitting by creating varied training examples.
+time_mask_p: 0.3
+time_mask_frac: 0.15
+freq_mask_p: 0.3
+freq_mask_frac: 0.15

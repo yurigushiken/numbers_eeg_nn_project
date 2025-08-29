@@ -1,0 +1,44 @@
+# EEGNeX on raw EEG (30 Hz) – A FAST configuration for Optuna searching.
+# Uses 4-fold CV and fewer epochs to accelerate the hyperparameter search.
+
+model_name: eegnex
+
+# Data
+dataset_dir: "data_preprocessed/acc_1_dataset (30hz)"
+n_folds: 4 # TRICK 1: Use 4-fold Group-Aware CV instead of full LOSO.
+
+# Training
+batch_size: 16
+lr: 5.0e-4
+epochs: 40 # TRICK 2: Cap total epochs. The best model is found much earlier.
+early_stop: 10 # TRICK 2: Stop overfitting trials faster.
+scheduler_patience: 8 # A good default for a faster run.
+
+# EEGNeX hyper-parameters (defaults inspired by paper)
+filter_1: 8
+filter_2: 32
+depth_multiplier: 2
+drop_prob: 0.5
+kernel_block_1_2: 32
+kernel_block_4: 16
+dilation_block_4: 2
+avg_pool_block4: 4
+kernel_block_5: 16
+dilation_block_5: 4
+avg_pool_block5: 8
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+
+# Time-series augmentations (using your previous base)
+shift_p: 0.5
+shift_min_frac: 0.0
+shift_max_frac: 0.02
+scale_p: 0.1
+scale_min: 0.9
+scale_max: 1.1
+noise_p: 0.3
+noise_std: 0.02
+time_mask_p: 0.1
+time_mask_frac: 0.1
+chan_mask_p: 0.1
+chan_mask_ratio: 0.05

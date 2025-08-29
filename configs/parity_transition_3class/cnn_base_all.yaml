@@ -1,0 +1,27 @@
+dataset_dir: data_preprocessed/all_trials_dataset
+metadata_query: "(Condition // 10) != (Condition % 10)"
+
+# --- Training ---
+batch_size: 32         # Smaller batch size for its regularizing effect
+lr: 1.0e-4             # A safe, conservative learning rate for stable training
+epochs: 100
+early_stop: 15
+
+# --- Augmentation & Regularization ---
+shift_p: 0.5
+scale_p: 0.1
+noise_p: 0.3
+noise_std: 0.02
+mixup_alpha: 0.2       # A small amount of mixup
+time_mask_p: 0.1       # A small amount of time masking
+chan_mask_p: 0.1       # A small amount of channel masking
+channel_dropout_p: 0.2 # Added: A moderate amount of channel dropout
+
+# Unused params from other models/configs
+weight_decay: 0.0
+shift_min_frac: 0.005
+shift_max_frac: 0.04
+scale_min: 0.9
+scale_max: 1.1
+time_mask_frac: 0.15
+chan_mask_ratio: 0.10

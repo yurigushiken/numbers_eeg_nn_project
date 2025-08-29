@@ -1,0 +1,47 @@
+# "Ultimate Champion" Configuration
+# ARCHITECTURE: From Trial 24 (LOSO champion on 'all_trials' data)
+# AUGMENTATIONS: From Trial 109 (Augmentation study champion)
+# DATASET: all_trials_dataset (30hz)
+# EVALUATION: Full Leave-One-Subject-Out (LOSO)
+
+model_name: eegnex
+
+# --- Data Loading ---
+dataset_dir: "data_preprocessed/all_trials_dataset (30hz)"
+# No n_folds key defaults the runner to full LOSO
+
+# --- Training (for LOSO) ---
+epochs: 100
+early_stop: 20
+
+# --- Hyperparameters from Architecture Champion (Trial 24) ---
+batch_size: 8
+lr: 0.0007775839158165456
+scheduler_patience: 9
+filter_1: 16
+depth_multiplier: 1
+drop_prob: 0.41118404993852475
+kernel_block_1_2: 32
+
+# --- Hyperparameters from Augmentation Champion (Trial 109) ---
+mixup_alpha: 0.268539081
+shift_p: 0.105046844
+noise_p: 0.087104384
+time_mask_p: 0.386562829
+time_mask_frac: 0.183792398
+chan_mask_p: 0.397413598
+
+# --- Fixed Base Parameters ---
+filter_2: 32
+kernel_block_4: 16
+dilation_block_4: 2
+avg_pool_block4: 4
+kernel_block_5: 16
+dilation_block_5: 4
+avg_pool_block5: 8
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+noise_std: 0.02
+shift_min_frac: 0.0
+shift_max_frac: 0.02
+chan_mask_ratio: 0.05

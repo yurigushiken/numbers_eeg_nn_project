@@ -1,0 +1,10 @@
+Recommendation 3 (Moderate Impact): Intra-CNN Attention (SE Blocks)
+You found that a full Transformer didn't help, but that doesn't mean all attention is bad. A simpler, more lightweight form of attention inside the CNN can be highly effective.
+What to do: Add a "Squeeze-and-Excitation" (SE) block after your convolutional layers. This is a standard, easy-to-implement module.
+Why it works: An SE block is a mini-network that learns to weigh the importance of your different feature channels. For example, after a convolution, you might have 64 channels. The SE block learns, on a trial-by-trial basis, that for this specific input, channels 5, 12, and 34 are really important, while the others are less so. It then "excites" (amplifies) the important channels and "squeezes" (dampens) the less important ones before passing them to the next layer. It's a way of letting the model dynamically focus its attention.
+The Professional Polish: Optimizing the Training Process
+This is an easier-to-implement change that is a standard best practice for training deep networks.
+Recommendation 4 (Moderate Impact): Use a Learning Rate Scheduler
+The Problem: You are currently using a fixed learning rate throughout training. This is like driving your car at the same speed whether you're on the highway or trying to park.
+What to do: Implement a learning rate scheduler, such as ReduceLROnPlateau or CosineAnnealingLR.
+Why it works: A scheduler allows the model to take large, confident steps at the beginning of training when it's far from the solution, and then automatically reduces the learning rate to take smaller, more careful steps as it gets closer to the optimal result. This almost always leads to better and more stable convergence.

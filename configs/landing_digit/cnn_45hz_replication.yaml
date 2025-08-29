@@ -1,0 +1,30 @@
+# This configuration replicates the best-performing 30Hz CNN run 
+# (run_id 20250725_2055, 27.71% accuracy) on the new 45Hz dataset 
+# for a direct performance comparison.
+
+# --- Dataset ---
+dataset_dir: data_preprocessed/acc_1_dataset (45hz corrected)
+
+# --- Model Arch ---
+model_name: eegnet
+
+# --- Training ---
+batch_size: 64
+lr: 0.00099988
+epochs: 80
+early_stop: 15
+
+# --- Augmentations from best run ---
+mixup_alpha: 0.40991426550989196
+noise_p: 0.3
+noise_std: 0.022713472820544915
+scale_p: 0.08568568458523856
+scale_min: 0.9
+scale_max: 1.1
+shift_p: 0.9771999065686038
+shift_min_frac: 0.005
+shift_max_frac: 0.04
+time_mask_p: 0.22274360262040488
+time_mask_frac: 0.15
+chan_mask_p: 0.181364322319745
+chan_mask_ratio: 0.1

@@ -1,0 +1,54 @@
+# Optuna search space for EEGNeX augmentations (V2 - Fine-Tuning)
+# This search refines ranges and adds augmentation "strength" parameters.
+
+# --- MixUp Regularization ---
+mixup_alpha:
+  method: uniform
+  low: 0.0
+  high: 0.5 # Range is still productive
+
+# --- Channel Masking ---
+chan_mask_p:
+  method: uniform
+  low: 0.2
+  high: 0.6 # SHIFTED HIGHER: Best results favored higher probability.
+
+# --- Time Masking ---
+time_mask_p:
+  method: uniform
+  low: 0.2
+  high: 0.5 # SHIFTED HIGHER: Best results favored higher probability.
+time_mask_frac:
+  method: float
+  low: 0.05
+  high: 0.25 # Range is still productive
+
+# --- Gaussian Noise ---
+noise_p:
+  method: uniform
+  low: 0.0
+  high: 0.5 # Range is still productive
+noise_std: # NEW: Tune noise strength
+  method: float
+  low: 0.01
+  high: 0.05
+
+# --- Time Shifting (Jitter) ---
+shift_p:
+  method: uniform
+  low: 0.0
+  high: 0.3 # TIGHTENED: Best results favored lower probability.
+shift_max_frac: # NEW: Tune shift amount
+  method: float
+  low: 0.01
+  high: 0.05
+
+# --- Amplitude Scaling ---
+scale_p: # NEW: Adding back scale augmentation
+  method: uniform
+  low: 0.0
+  high: 0.3
+scale_max: # NEW: Tune scale strength
+  method: float
+  low: 1.1
+  high: 1.2

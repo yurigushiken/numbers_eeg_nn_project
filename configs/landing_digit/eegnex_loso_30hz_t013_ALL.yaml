@@ -1,0 +1,48 @@
+# LOSO configuration for a top model from study landing_digit_eegnex-acc1-30hz-01.
+# Original Trial ID: 13
+# Mean Accuracy (nf4): 28.10%
+# All trials
+
+model_name: eegnex
+
+# --- Data Loading ---
+dataset_dir: "data_preprocessed/all_trials_dataset (30hz)"
+# No n_folds key defaults the runner to full Leave-One-Subject-Out (LOSO)
+
+# --- Training (for LOSO) ---
+epochs: 100
+early_stop: 20
+
+# --- Hyperparameters from Optuna Trial 13 ---
+batch_size: 8
+lr: 0.0005106334246255717
+scheduler_patience: 9
+filter_1: 16
+depth_multiplier: 1
+drop_prob: 0.6071729842467447
+kernel_block_1_2: 32
+
+# --- Fixed Base Parameters ---
+filter_2: 32
+kernel_block_4: 16
+dilation_block_4: 2
+avg_pool_block4: 4
+kernel_block_5: 16
+dilation_block_5: 4
+avg_pool_block5: 8
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+
+# --- Base Augmentations ---
+shift_p: 0.5
+shift_min_frac: 0.0
+shift_max_frac: 0.02
+scale_p: 0.1
+scale_min: 0.9
+scale_max: 1.1
+noise_p: 0.3
+noise_std: 0.02
+time_mask_p: 0.1
+time_mask_frac: 0.1
+chan_mask_p: 0.1
+chan_mask_ratio: 0.05

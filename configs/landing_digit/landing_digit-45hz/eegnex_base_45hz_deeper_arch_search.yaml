@@ -1,0 +1,51 @@
+# EEGNeX on raw EEG (45 Hz) – Base config for the STAGE 2 Deeper Architecture Search.
+# This file FIXES the champion core architecture from Stage 1b (Trial 3).
+# It is designed to be used with optuna_space_eegnex_45hz_deeper_arch.yaml.
+
+model_name: eegnex
+
+# --- Data Loading ---
+dataset_dir: "data_preprocessed/all_trials_dataset (45hz) V2"
+n_folds: 4
+
+# --- Training (for fast search) ---
+epochs: 40
+early_stop: 10
+
+# --- FIXED Champion Core Architecture (from Stage 1b, Trial 3) ---
+lr: 0.0009712121050648479
+batch_size: 16
+scheduler_patience: 14
+filter_1: 16
+kernel_block_1_2: 128
+drop_prob: 0.4760609974958405
+depth_multiplier: 1
+
+# --- FIXED Champion Augmentations (from 30Hz study, Trial 217) ---
+# These remain fixed until the final stage.
+mixup_alpha: 0.453331811
+shift_p: 0.182100037
+shift_max_frac: 0.039063018
+scale_p: 0.081532162
+scale_max: 1.14987267
+noise_p: 0.087185426
+noise_std: 0.020216591
+time_mask_frac: 0.086952604
+chan_mask_p: 0.368629824
+time_mask_p: 0.383883174
+
+# --- PLACEHOLDERS for Deeper Arch Tuned Parameters ---
+# Optuna will overwrite these.
+kernel_block_4: 16
+dilation_block_4: 2
+avg_pool_block4: 4
+kernel_block_5: 16
+dilation_block_5: 4
+avg_pool_block5: 8
+
+# --- FIXED Base Model Parameters ---
+filter_2: 32
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+scale_min: 0.9
+chan_mask_ratio: 0.05

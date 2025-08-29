@@ -1,0 +1,29 @@
+# CNN baseline for landing_digit – uses ONLY trials with ACCURATE responses.
+# Reconstructed from the 2nd best-performing run (20250718_1606...) from the
+# legacy `02_train_decoder_landing_digit_enhanced-data-augmentation` script.
+
+dataset_dir: data_preprocessed/acc_1_dataset
+
+# training
+batch_size: 64
+lr: 0.0001
+epochs: 100
+early_stop: 15
+max_folds: null   # null → run all subjects
+
+# augmentation
+shift_p: 0.3
+shift_min_frac: 0.005
+shift_max_frac: 0.04
+scale_p: 0.5
+scale_min: 0.9
+scale_max: 1.1
+noise_p: 0.3
+noise_std: 0.0
+
+# mixup & masking
+mixup_alpha: 0.0
+time_mask_p: 0.0
+time_mask_frac: 0.0
+chan_mask_p: 0.0
+chan_mask_ratio: 0.0

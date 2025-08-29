@@ -1,0 +1,44 @@
+# FILE: configs/landing_digit/cnn_45hz_base.yaml
+# A robust baseline for EEGNet on the noisy 45Hz data.
+# The strategy is to stabilize training and encourage the model
+# to learn from lower-frequency features.
+
+# --- Dataset ---
+dataset_dir: "data_preprocessed/acc_1_dataset (45hz corrected)"
+
+# --- Model Arch ---
+model_name: eegnet
+# We need to specify the kernel length for EEGNet's first layer.
+# This is a critical parameter for tuning on different frequency bands.
+F1: 8
+D: 2
+F2: 16
+kernel_length: 128 # WHY: This is the most important change. A longer kernel (128 samples = 1 second at 128Hz sfreq) will act as a smoothing filter, averaging over the fast, noisy oscillations and forcing the model to learn from the slower, more stable ERP components. The default is often 64.
+
+# --- Training ---
+batch_size: 32 # WHY: A smaller batch size than the 30Hz optimum of 64. This can have a regularizing effect and improve stability on noisy data.
+
+lr: 0.0001 # WHY: A much more conservative (10x smaller) learning rate to prevent the model's weights from exploding due to noisy, high-amplitude gradients from EMG.
+
+epochs: 100
+early_stop: 20 # WHY: A slightly more patient early stopping, as learning on noisy data can take longer and have more plateaus.
+
+scheduler_patience: 10 # WHY: We know from other experiments that a patient scheduler is crucial.
+
+# --- Augmentations & Regularization ---
+# We are starting with a more aggressive regularization strategy to combat overfitting to noise.
+drop_prob: 0.5 # WHY: EEGNet's internal dropout. A high value is a strong regularizer.
+
+mixup_alpha: 0.4
+noise_p: 0.3
+noise_std: 0.02
+scale_p: 0.1
+scale_min: 0.9
+scale_max: 1.1
+shift_p: 0.5
+shift_min_frac: 0.0
+shift_max_frac: 0.02
+time_mask_p: 0.3 # WHY: More aggressive time masking to force the model to be less reliant on any single time point, which might be noisy.
+time_mask_frac: 0.2
+chan_mask_p: 0.3 # WHY: More aggressive channel masking to force the model to learn robust spatial patterns and not overfit to noise in a single channel.
+chan_mask_ratio: 0.15

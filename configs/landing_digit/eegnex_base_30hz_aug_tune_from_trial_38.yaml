@@ -1,0 +1,45 @@
+# EEGNeX on raw EEG (30 Hz) – A base config for fine-tuning augmentations.
+# The architecture and training parameters are FIXED to the values from the champion
+# model (Trial 38) of the previous study.
+
+model_name: eegnex
+
+# Data
+dataset_dir: "data_preprocessed/acc_1_dataset (30hz)"
+n_folds: 4 # Use 4-fold CV for a fast search
+
+# Training (for fast search)
+epochs: 40
+early_stop: 10
+
+# --- FIXED Hyperparameters from Champion Trial 38 ---
+batch_size: 8
+lr: 0.0008430118632980152
+scheduler_patience: 10
+filter_1: 16
+depth_multiplier: 1
+drop_prob: 0.43283221676662587
+kernel_block_1_2: 32
+
+# --- FIXED Base Parameters ---
+filter_2: 32
+kernel_block_4: 16
+dilation_block_4: 2
+avg_pool_block4: 4
+kernel_block_5: 16
+dilation_block_5: 4
+avg_pool_block5: 8
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+
+# --- Augmentations (These will be overridden by Optuna) ---
+mixup_alpha: 0.2
+shift_p: 0.5
+shift_min_frac: 0.0
+shift_max_frac: 0.02
+noise_p: 0.3
+noise_std: 0.02
+time_mask_p: 0.1
+time_mask_frac: 0.1
+chan_mask_p: 0.1
+chan_mask_ratio: 0.05

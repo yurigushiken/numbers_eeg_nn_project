@@ -1,0 +1,28 @@
+# Optuna search space for EEGNeX 45Hz Data - STAGE 1: Architecture Search
+# This search focuses on the most impactful architectural parameters to find the
+# optimal core model for the new, higher-frequency data.
+
+# --- Optimizer and Training Parameters ---
+lr:
+  method: log_uniform
+  low: 5.0e-4
+  high: 1.0e-3 # Best results were consistently in this higher range.
+batch_size:
+  method: categorical
+  choices: [8, 16] # Test if a larger batch helps stabilize noisy 45Hz gradients.
+scheduler_patience:
+  method: int
+  low: 8
+  high: 12
+
+# --- Core EEGNeX Architectural Parameters ---
+filter_1:
+  method: categorical
+  choices: [8, 16, 24] # Test if a wider initial filter is needed for 45Hz.
+kernel_block_1_2:
+  method: categorical
+  choices: [32, 64] # Test if a longer kernel is better for smoothing noise.
+drop_prob:
+  method: uniform
+  low: 0.3
+  high: 0.7

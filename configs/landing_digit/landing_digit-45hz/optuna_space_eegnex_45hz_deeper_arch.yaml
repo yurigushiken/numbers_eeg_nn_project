@@ -1,0 +1,25 @@
+# Optuna search space for EEGNeX 45Hz Data - STAGE 2: Deeper Architecture Fine-Tuning
+# This search focuses on the parameters of the dilated convolutional blocks (4 and 5),
+# keeping the now-optimized core architecture fixed.
+
+# --- Block 4 Parameters ---
+kernel_block_4:
+  method: categorical
+  choices: [8, 16, 24] # Test different kernel sizes for the first dilated block.
+dilation_block_4:
+  method: categorical
+  choices: [1, 2, 4] # Test different dilation rates.
+avg_pool_block4:
+  method: categorical
+  choices: [2, 4, 8] # Test different pooling sizes.
+
+# --- Block 5 Parameters ---
+kernel_block_5:
+  method: categorical
+  choices: [8, 16, 24] # Test different kernel sizes for the second dilated block.
+dilation_block_5:
+  method: categorical
+  choices: [2, 4, 8] # Test different dilation rates.
+avg_pool_block5:
+  method: categorical
+  choices: [4, 8, 16] # Test different pooling sizes.
