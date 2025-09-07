@@ -231,8 +231,72 @@ early_stop: 15
 | `direction_binary` | Binary: Was the change direction positive (e.g., 24) or negative (e.g., 42)? Ignores no-change trials. | 2 |
 | `land1_binary` | Binary: Did the trial land on the digit '1'? | 2 |
 | `land1_binary_explicit` | Same as `land1_binary`, but with all conditions explicitly listed in the task file for clarity. | 2 |
+| `landing_digit_1_3_from_any` | Predict the final stimulus digit (1-3), allowing any valid prime digit. | 3 |
+| `landing_digit_4_6_from_any` | Predict the final stimulus digit (4-6), allowing any valid prime digit. | 3 |
+| `landing_digit_1_3_within_small_and_cardinality` | Predict the final stimulus digit (1-3), but only for trials where prime and stimulus are both in the small group {1,2,3}. | 3 |
+| `landing_digit_4_6_within_large` | Predict the final stimulus digit (4-6) for non-cardinality trials where prime and stimulus are both in the large group {4,5,6}. | 3 |
+| `landing_digit_1_3_within_small` | Predict the final stimulus digit (1-3) for non-cardinality trials where prime and stimulus are both in the small group {1,2,3}. | 3 |
+| `landing_digit_4_6_within_large` | Predict the final stimulus digit (4-6) for non-cardinality trials where prime and stimulus are both in the large group {4,5,6}. | 3 |
+| `all_pairs_XvY` | Binary: Distinguish between landing digits X and Y. A set of 15 tasks for all unique pairs from 1-6. | 2 |
 | `numbers_pairs_12_21` | Binary: Was the condition `12` or `21`? | 2 |
 | *... (and all other `numbers_pairs_X_Y` variants)* | *... (Binary classification for other specific pairs)* | 2 |
+
+### **4.2 · Reproducibility & Seeding**
+
+By default, all training runs are **non-deterministic**. The random seeds for `NumPy` and `PyTorch` are not fixed, meaning that running the exact same command twice may produce slightly different results due to different random weight initializations and data shuffling. This is the recommended mode for hyperparameter searches (e.g., with Optuna), as it provides a more robust estimate of a model's performance.
+
+To make a run fully reproducible, you can specify a fixed seed.
+
+#### **How to Enable a Fixed Seed**
+
+To ensure a run is deterministic, add the `seed` key to the appropriate `.yaml` configuration file:
+
+```yaml
+# In your task's .yaml file:
+seed: 42
+```
+
+When this key is present, the training script will print a confirmation message (`--- Running with fixed seed: 42 ---`) and set the seeds for all relevant libraries. It is highly recommended to use a fixed seed for all final, reported results to ensure they are perfectly reproducible.
+
+### **4.3 · Data Preprocessing Options**
+
+You can control several data preprocessing steps directly from the `.yaml` configuration files.
+
+#### **Opt-in Channel Exclusion**
+
+For certain analyses, it may be desirable to exclude non-scalp (e.g., ocular) channels from the model training process. The project supports an explicit, opt-in mechanism for this.
+
+The `configs/common.yaml` file contains a named list of channels to exclude, currently defined as `non_scalp`. To activate this for a specific training run, add the following key to that run's `.yaml` file:
+
+```yaml
+# In your task's .yaml file:
+use_channel_list: non_scalp
+```
+
+When the training starts, the system prints a confirmation message indicating exactly which channels have been removed for that run.
+
+#### **Configurable Time-Window Cropping**
+
+To focus the model on a specific time window of the EEG epoch (e.g., to isolate an ERP), add the `crop_ms` key to your configuration. This truncates each trial's data before it is passed to the model.
+
+The feature is controlled by a list of two integers representing the start and end times in milliseconds:
+
+```yaml
+# In your task's .yaml file, this truncates the data to a 50–200 ms window:
+crop_ms: [50, 200]
+```
+
+When present, the loader prints a confirmation message, for example:
+
+```
+INFO: Applying time cropping from 50ms to 200ms (0.050s to 0.200s)
+```
+
+Notes:
+
+- Cropping uses `include_tmax=True`, so the end time bound is included.
+- Times are in milliseconds relative to stimulus onset; negative values indicate the pre-stimulus baseline.
+- All plots and XAI outputs use the dataset's canonical time axis (`times_ms`), which automatically reflects `crop_ms` when set.
 
 ---
 
@@ -253,24 +317,7 @@ python scripts/optuna_tune.py `
 The tuner samples parameters, calls the chosen engine **in-process**, records
 the `mean_acc`, and appends each trial to `results/runs_index.csv`.
 
-### **2.3 · Opt-in Channel Exclusion**
-
-For certain analyses, it may be desirable to exclude non-scalp (e.g., ocular) channels from the model training process. The project now supports an explicit, opt-in mechanism for this.
-
-#### **How It Works**
-
-The `configs/common.yaml` file contains a named list of channels to exclude, currently defined as `non_scalp`.
-
-To activate this exclusion for a specific training run, simply add the following key to that run's `.yaml` configuration file:
-
-```yaml
-# In your task's .yaml file:
-use_channel_list: non_scalp
-```
-
-When the training starts, the system will print a confirmation message indicating exactly which channels have been removed from the dataset for that run. This makes the channel selection process explicit and reproducible.
-
----
+ 
 
 ## 6 · Common Issues & Fixes
 
