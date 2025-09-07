@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import pandas as pd
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Any
 import sys
+from collections import defaultdict
 
 # switched to new unified index writer
 from utils.index_writer import append_index
+from .reporting import create_consolidated_reports
 
 __all__ = ["write_summary"]
 
@@ -20,41 +23,55 @@ def write_summary(run_dir: Path | str, summary: Dict, task: str, engine: str) ->
     json_path = run_dir / f"summary_{task}_{engine}.json"
     json_path.write_text(json.dumps(summary, indent=2))
 
-    # ---------------- TXT (human-readable) ----------------
-    lines = [
-        f"Task: {task}   ·   Engine: {engine}",
-        f"Run ID: {summary['run_id']}",
-        "",
-        "Performance:",
-        f"  Mean acc: {summary['mean_acc']:.2f}%",
+    # --- Part 2: Human-readable TXT report (Revised for clarity) ---
+    txt_report_path = run_dir / f"report_{task}_{engine}.txt"
+    report_parts = []
+    
+    report_parts.append(f"--- Run Summary ---")
+    report_parts.append(f"Task: {task}   |   Engine: {engine}   |   Run ID: {summary.get('run_id', 'N/A')}")
+    report_parts.append("-" * 60)
+
+    # --- Section 1: Overall Performance ---
+    report_parts.append("\n--- Overall Performance ---")
+    report_parts.append(f"  Mean Accuracy     : {summary.get('mean_acc', 0.0):.2f}% (std: {summary.get('std_acc', 0.0):.2f}%)")
+    macro_f1 = summary.get('macro_f1', 0.0)
+    if macro_f1: # Only show if calculated
+        report_parts.append(f"  Macro F1-Score    : {macro_f1:.2f}%")
+        report_parts.append(f"  Weighted F1-Score : {summary.get('weighted_f1', 0.0):.2f}%")
+
+    fold_accs = summary.get('fold_accuracies', [])
+    if fold_accs:
+        report_parts.append(f"  Fold Accuracy Range : [{min(fold_accs):.2f}% - {max(fold_accs):.2f}%]")
+
+    # --- Section 2: Class Performance ---
+    class_perf = summary.get("per_class_f1_mean", [])
+    if class_perf:
+        report_parts.append("\n--- Cross-Fold Class Performance (Mean F1-Score) ---")
+        sorted_classes = sorted(class_perf, key=lambda x: x["f1"], reverse=True)
+        
+        # Display all classes, as top/worst can be repetitive for few classes
+        for item in sorted_classes:
+             report_parts.append(f"  - Class {item['class_name']:<10}: {item['f1']:.2f}")
+
+    # --- Section 3: Key Hyper-parameters ---
+    report_parts.append("\n--- Key Hyper-parameters ---")
+    hyper = summary.get("hyper", {})
+    key_params = [
+        "model_name", "lr", "batch_size", "epochs", "early_stop", 
+        "weight_decay", "scheduler"
     ]
-    if "std_acc" in summary:
-        lines.append(f"  Std acc : {summary['std_acc']:.2f}%")
+    for key in key_params:
+        if key in hyper:
+            report_parts.append(f"  {key:<20}: {hyper[key]}")
 
-    # --- New: Add per-fold accuracy breakdown ---
-    if "fold_accuracies" in summary and summary["fold_accuracies"]:
-        lines.append("\nPer-Fold Accuracy:")
-        # Sort by fold number (1-based index) for consistent ordering
-        for i, acc in enumerate(summary["fold_accuracies"], 1):
-            lines.append(f"  Fold {i:02d}: {acc:.2f}%")
+    # --- Footer ---
+    report_parts.append(f"\n" + "-" * 60)
+    report_parts.append(f"Note: Full machine-readable details in summary_{task}_{engine}.json")
+    
+    txt_report_path.write_text("\n".join(report_parts))
 
-    lines.extend(["", "Hyper-parameters (non-path):"])
-    for k, v in sorted(summary.get("hyper", {}).items()):
-        if k in {"dataset_dir", "run_dir"}:  # paths already implicit
-            continue
-        lines.append(f"  {k}: {v}")
-
-    lines.append("")
-    lines.append("Artifacts:")
-    for p in sorted(run_dir.glob("*.png")):
-        lines.append(f"  {p.name}")
-
-    lines.append("")
-    lines.append(f"Note: full machine-readable details in {json_path.name}")
-
-    (run_dir / f"report_{task}_{engine}.txt").write_text("\n".join(lines))
-
-    # ---------------- global CSV index (separate optuna / non-optuna) ----------------
+    # --- Part 3: Append to global index ---
+    csv_path = Path("results") / "runs_index.csv"
     try:
         append_index(summary, f"{task}_{engine}")
     except Exception as e:
@@ -82,3 +99,10 @@ def write_summary(run_dir: Path | str, summary: Dict, task: str, engine: str) ->
                     print(f"[WARN] Could not rebuild Optuna index: {e}")
     except Exception as _e:
         print(f"[WARN] Optuna index hook error: {_e}") 
+
+    # --- Part 4: NEW - Generate consolidated HTML and PDF reports ---
+    print("\n--- Generating Consolidated Reports ---")
+    try:
+        create_consolidated_reports(run_dir, summary, task, engine)
+    except Exception as e:
+        print(f" !! ERROR generating consolidated reports: {e}") 

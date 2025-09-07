@@ -1,0 +1,52 @@
+# EEGNeX on 45Hz Data – Base config for STAGE 1 Architecture Search on the 1-3 task.
+# This file FIXES the best-known augmentations and sets up a fast search.
+# It is designed to be used with optuna_space_eegnex_45hz_1-3_arch.yaml.
+
+model_name: eegnex
+
+# --- Data Loading ---
+dataset_dir: "data_preprocessed/all_trials_dataset (1-45hz) V2"
+use_channel_list: non_scalp # Activate exclusion of non-scalp channels
+n_folds: 4 # Use 4-fold CV for a fast and efficient search
+
+# --- Training (for fast search) ---
+epochs: 40
+early_stop: 10
+
+# --- FIXED Architectural Parameters (from previous studies) ---
+depth_multiplier: 1
+
+# --- FIXED Augmentation Parameters (from Champion Trial 217) ---
+# Using the best-known augmentations as a strong baseline for this new search.
+mixup_alpha: 0.453331811
+shift_p: 0.182100037
+shift_max_frac: 0.039063018
+scale_p: 0.081532162
+scale_max: 1.14987267
+noise_p: 0.087185426
+noise_std: 0.020216591
+time_mask_p: 0.383883174
+time_mask_frac: 0.086952604
+chan_mask_p: 0.368629824
+
+# --- PLACEHOLDER values for Tuned Parameters ---
+# Optuna will overwrite these.
+lr: 0.0007
+batch_size: 8
+scheduler_patience: 9
+filter_1: 16
+kernel_block_1_2: 64
+drop_prob: 0.5
+
+# --- FIXED Base Model Parameters ---
+filter_2: 32
+kernel_block_4: 16
+dilation_block_4: 2
+avg_pool_block4: 4
+kernel_block_5: 16
+dilation_block_5: 4
+avg_pool_block5: 8
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+scale_min: 0.9
+chan_mask_ratio: 0.05

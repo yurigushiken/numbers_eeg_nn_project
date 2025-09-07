@@ -126,6 +126,14 @@ dmypy.json
 /media/
 /audits/
 
+# Project-specific folders not under version control
+/archive/
+/plots_new-design/
+/net/
+/temp/
+/behavior_data_analysis/
+/behavior-files-fix/
+
 # IDE settings
 .vscode/
 .idea/

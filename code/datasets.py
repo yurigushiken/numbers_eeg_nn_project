@@ -71,6 +71,22 @@ class RawEEGDataset(BaseDataset):
         all_ep.metadata["__y"] = self.label_fn(all_ep.metadata)
         all_ep = all_ep[~all_ep.metadata["__y"].isna()]
 
+        # --- NEW: Opt-in channel exclusion ---
+        list_name_to_use = self.cfg.get("use_channel_list")
+        if list_name_to_use:
+            print(f"INFO: Attempting to exclude channel list: '{list_name_to_use}'")
+            all_channel_lists = self.cfg.get("channel_lists", {})
+            channels_to_exclude = all_channel_lists.get(list_name_to_use)
+            
+            if channels_to_exclude:
+                ch_to_drop = [ch for ch in channels_to_exclude if ch in all_ep.ch_names]
+                if ch_to_drop:
+                    print(f"INFO: Excluding {len(ch_to_drop)} channels...")
+                    all_ep.drop_channels(ch_to_drop)
+                    print(f"INFO: Remaining channels: {len(all_ep.ch_names)}")
+            else:
+                print(f"WARNING: Channel list '{list_name_to_use}' not found in config. Using all channels.")
+
         # --- Preprocessing ---
         X = all_ep.get_data(copy=False).astype(np.float32) * 1e6 # V to uV
         if X.shape[1] > 128: # Truncate channels if necessary
@@ -124,6 +140,43 @@ class RawEEGDataset(BaseDataset):
     @property
     def time_points(self):
         return self.X.shape[3]
+
+    @property
+    def channel_names(self) -> List[str]:
+        # After dropping channels, the definitive source is the MNE object's ch_names
+        # We need to re-create it to be sure, as the instance isn't stored.
+        # This is a bit redundant but guarantees correctness.
+        cache_key = f"{self.root.resolve()}::{self.label_fn.__name__}::__ch_names__"
+        if cache_key in _CACHE:
+            return _CACHE[cache_key]
+
+        files = sorted(self.root.glob("sub-*preprocessed-epo.fif"))
+        all_ep = mne.concatenate_epochs([mne.read_epochs(fp, preload=False, verbose=False) for fp in files])
+        
+        list_name_to_use = self.cfg.get("use_channel_list")
+        if list_name_to_use:
+            all_channel_lists = self.cfg.get("channel_lists", {})
+            channels_to_exclude = all_channel_lists.get(list_name_to_use)
+            if channels_to_exclude:
+                ch_to_drop = [ch for ch in channels_to_exclude if ch in all_ep.ch_names]
+                if ch_to_drop:
+                    all_ep.drop_channels(ch_to_drop)
+        
+        result = all_ep.ch_names
+        _CACHE[cache_key] = result
+        return result
+
+    @property
+    def sfreq(self) -> float:
+        cache_key = f"{self.root.resolve()}::__sfreq__"
+        if cache_key in _CACHE:
+            return _CACHE[cache_key]
+        
+        fp = next(self.root.glob("sub-*preprocessed-epo.fif"))
+        info = mne.io.read_info(fp)
+        result = info['sfreq']
+        _CACHE[cache_key] = result
+        return result
 
 class SpectrogramDataset(BaseDataset):
     """Dataset for loading spectrograms and metadata."""

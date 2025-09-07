@@ -1,0 +1,13 @@
+task,mean_accuracy
+numbers_pairs_13_31,0.7466
+numbers_pairs_14_41,0.7265
+numbers_pairs_12_21,0.7240
+numbers_pairs_45_54,0.7157
+numbers_pairs_56_65,0.7016
+numbers_pairs_25_52,0.6758
+numbers_pairs_23_32,0.6646
+numbers_pairs_36_63,0.6430
+numbers_pairs_35_53,0.6313
+numbers_pairs_34_43,0.6163
+numbers_pairs_46_64,0.6036
+numbers_pairs_24_42,0.5981

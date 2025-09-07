@@ -1,0 +1,42 @@
+# EEGNeX on raw EEG (45 Hz) – Config for Number Pair 13 vs 31.
+# This config uses the champion parameters from the landing_digit search.
+
+model_name: eegnex
+
+# --- Data Loading ---
+# This task uses the "all_trials" dataset which contains all conditions.
+dataset_dir: "data_preprocessed/all_trials_dataset (45hz) V2"
+
+# --- Training ---
+epochs: 40
+early_stop: 10
+
+# --- FIXED Parameters from landing_digit finalist search ---
+batch_size: 16
+scheduler_patience: 14
+filter_1: 16
+kernel_block_1_2: 128
+depth_multiplier: 1
+kernel_block_4: 24
+dilation_block_4: 1
+avg_pool_block4: 4
+shift_p: 0.182100037
+shift_max_frac: 0.039063018
+scale_p: 0.081532162
+scale_max: 1.14987267
+noise_p: 0.087185426
+noise_std: 0.020216591
+time_mask_frac: 0.086952604
+lr: 0.000971212
+drop_prob: 0.476060997
+kernel_block_5: 8
+dilation_block_5: 8
+avg_pool_block5: 16
+mixup_alpha: 0.453331811
+time_mask_p: 0.383883174
+chan_mask_p: 0.368629824
+filter_2: 32
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+scale_min: 0.9
+chan_mask_ratio: 0.05

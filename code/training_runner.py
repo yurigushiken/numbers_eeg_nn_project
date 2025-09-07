@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Dict, Any, Tuple, Optional, List
 from contextlib import nullcontext
+import random
 
 import numpy as np
 import torch
@@ -36,12 +37,20 @@ except ImportError:
 from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 from torch.utils.data import DataLoader, Subset, Dataset
 from sklearn.model_selection import LeaveOneGroupOut, GroupShuffleSplit
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, classification_report
 from sklearn.utils.class_weight import compute_class_weight
 
 from utils.plots import plot_confusion, plot_curves
 
 import optuna
+
+def seed_worker(worker_id):
+    """
+    Seeds a DataLoader worker to ensure reproducibility.
+    """
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 # Constants
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -116,9 +125,8 @@ class TrainingRunner:
 
         log_accs = []
         overall_y_true, overall_y_pred = [], []
-
-        # --- New: Store per-fold results for detailed analysis ---
-        fold_results = []
+        per_fold_metrics = []
+        fold_split_info = []
 
         global_step = 0  # Initialize global counter before the loop
         
@@ -142,7 +150,14 @@ class TrainingRunner:
                 if self.cfg.get("max_folds") is not None and fold >= self.cfg["max_folds"]:
                     break
                 
-                sys.stdout.write(f"\n--- Starting Fold {fold+1:02d} ---\n")
+                # --- CAPTURE the test subject IDs for this fold ---
+                test_subjects = np.unique(groups[va_idx]).tolist()
+                fold_split_info.append({
+                    "fold": fold + 1,
+                    "test_subjects": test_subjects
+                })
+
+                sys.stdout.write(f"\n--- Starting Fold {fold+1:02d} (Test Subjects: {test_subjects}) ---\n")
                 sys.stdout.flush()
                 sys.stdout.write("Preparing data loaders...\n")
                 sys.stdout.flush()
@@ -159,9 +174,24 @@ class TrainingRunner:
                     else:
                         num_workers = 2
 
+                # --- CREATE a seeded generator for the DataLoader ---
+                g = torch.Generator()
+                seed = self.cfg.get("seed")
+                if seed is not None:
+                    g.manual_seed(seed)
+
                 aug = aug_builder(self.cfg, dataset)
                 dataset.set_transform(aug) # Assumes dataset has a method to set transform
-                tr_ld = DataLoader(Subset(dataset, tr_idx), batch_size=self.cfg["batch_size"], shuffle=True, drop_last=False, num_workers=num_workers, pin_memory=True)
+                tr_ld = DataLoader(
+                    Subset(dataset, tr_idx), 
+                    batch_size=self.cfg["batch_size"], 
+                    shuffle=True, 
+                    drop_last=False, 
+                    num_workers=num_workers, 
+                    pin_memory=True,
+                    worker_init_fn=seed_worker if seed is not None else None,
+                    generator=g if seed is not None else None
+                )
                 
                 dataset.set_transform(None) # No augmentation for validation
                 va_ld = DataLoader(Subset(dataset, va_idx), batch_size=self.cfg["batch_size"], shuffle=False, num_workers=num_workers, pin_memory=True)
@@ -273,9 +303,19 @@ class TrainingRunner:
                         break
                 
                 log_accs.append(best_acc)
-                fold_results.append({"fold": fold + 1, "accuracy": best_acc})
                 overall_y_true.extend(best_y_true_fold)
                 overall_y_pred.extend(best_y_pred_fold)
+
+                # --- New: Generate and store per-class metrics for this fold ---
+                report = classification_report(
+                    best_y_true_fold,
+                    best_y_pred_fold,
+                    labels=list(range(num_cls)),
+                    target_names=class_names,
+                    output_dict=True,
+                    zero_division=0
+                )
+                per_fold_metrics.append({"fold": fold + 1, "classification_report": report})
 
                 sys.stdout.write(f"Fold {fold+1:02d} complete. Best accuracy: {best_acc:.2f}%.\n")
                 sys.stdout.flush()
@@ -307,4 +347,10 @@ class TrainingRunner:
                 title=f"Overall · Mean {mean_acc:.1f}% · Macro-F1 {macro_f1:.1f}%",
             )
         
-        return {"mean_acc": float(mean_acc), "std_acc": float(std_acc), "fold_accuracies": log_accs}
+        return {
+            "mean_acc": float(mean_acc), 
+            "std_acc": float(std_acc), 
+            "fold_accuracies": log_accs,
+            "per_fold_class_metrics": per_fold_metrics,
+            "fold_splits": fold_split_info
+        }

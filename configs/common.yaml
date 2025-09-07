@@ -1,3 +1,42 @@
 # values that many scripts may share
 early_stop: 20
-epochs: 120 
+epochs: 120
+
+# --- NEW: Named Channel Exclusion Lists ---
+# These lists can be activated by adding a 'use_channel_list' key
+# to a specific task's .yaml configuration file.
+channel_lists:
+  non_scalp:
+    # ocular/periorbital
+    - E1
+    - E8
+    - E14
+    - E17
+    - E21
+    - E25
+    - E32
+    # full outer belt
+    - E43
+    - E48
+    - E49
+    - E56
+    - E63
+    - E68
+    - E73
+    - E81
+    - E88
+    - E94
+    - E99
+    - E107
+    - E113
+    - E119
+    - E120
+    - E125
+    - E126
+    - E127
+    - E128
+    # extra-peripheral
+    - E38
+    - E44
+    - E114
+    - E121 

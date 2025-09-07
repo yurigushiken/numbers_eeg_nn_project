@@ -23,6 +23,23 @@ from .parity_transition_3class import label_fn as parity_transition_3class  # no
 from .parity_transition_2class import label_fn as parity_transition_2class # noqa: F401
 from .cardinality import label_fn as cardinality # noqa: F401
 from .landing_digit_30_class import label_fn as landing_digit_30_class # noqa: F401
+from .change_no_change import label_fn as change_no_change # noqa: F401
+from .numbers_pairs_12_21 import label_fn as numbers_pairs_12_21 # noqa: F401
+from .numbers_pairs_13_31 import label_fn as numbers_pairs_13_31 # noqa: F401
+from .numbers_pairs_14_41 import label_fn as numbers_pairs_14_41 # noqa: F401
+from .numbers_pairs_23_32 import label_fn as numbers_pairs_23_32 # noqa: F401
+from .numbers_pairs_24_42 import label_fn as numbers_pairs_24_42 # noqa: F401
+from .numbers_pairs_25_52 import label_fn as numbers_pairs_25_52 # noqa: F401
+from .numbers_pairs_34_43 import label_fn as numbers_pairs_34_43 # noqa: F401
+from .numbers_pairs_35_53 import label_fn as numbers_pairs_35_53 # noqa: F401
+from .numbers_pairs_36_63 import label_fn as numbers_pairs_36_63 # noqa: F401
+from .numbers_pairs_45_54 import label_fn as numbers_pairs_45_54 # noqa: F401
+from .numbers_pairs_46_64 import label_fn as numbers_pairs_46_64 # noqa: F401
+from .numbers_pairs_56_65 import label_fn as numbers_pairs_56_65 # noqa: F401
+from .no_cross_landing_digit import label_fn as no_cross_landing_digit # noqa: F401
+from .land1_binary_explicit import label_fn as land1_binary_explicit # noqa: F401
+from .landing_digit_1_3 import label_fn as landing_digit_1_3 # noqa: F401
+from .landing_digit_4_6 import label_fn as landing_digit_4_6 # noqa: F401
 
 TASKS = {
     "landing_digit": landing_digit,
@@ -40,6 +57,23 @@ TASKS = {
     "parity_transition_2class": parity_transition_2class,
     "cardinality": cardinality,
     "landing_digit_30_class": landing_digit_30_class,
+    "change_no_change": change_no_change,
+    "numbers_pairs_12_21": numbers_pairs_12_21,
+    "numbers_pairs_13_31": numbers_pairs_13_31,
+    "numbers_pairs_14_41": numbers_pairs_14_41,
+    "numbers_pairs_23_32": numbers_pairs_23_32,
+    "numbers_pairs_24_42": numbers_pairs_24_42,
+    "numbers_pairs_25_52": numbers_pairs_25_52,
+    "numbers_pairs_34_43": numbers_pairs_34_43,
+    "numbers_pairs_35_53": numbers_pairs_35_53,
+    "numbers_pairs_36_63": numbers_pairs_36_63,
+    "numbers_pairs_45_54": numbers_pairs_45_54,
+    "numbers_pairs_46_64": numbers_pairs_46_64,
+    "numbers_pairs_56_65": numbers_pairs_56_65,
+    "no_cross_landing_digit": no_cross_landing_digit,
+    "land1_binary_explicit": land1_binary_explicit,
+    "landing_digit_1_3": landing_digit_1_3,
+    "landing_digit_4_6": landing_digit_4_6,
 }
 
 

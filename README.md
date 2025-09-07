@@ -2,17 +2,15 @@
 
 **⚠️ Quick environment setup — READ ME FIRST**
 
-*All commands in this repo assume the `torcheeg-env` conda environment.*  Pick **one** of the following patterns before running anything:
-Cursor / VS Code agent shells often launch without `conda` on `PATH`.  The fool-proof way to run any command in this project is to call the interpreter that lives *inside* the environment:
+*All commands in this repo assume you have activated the `eegnex-env` conda environment.*
 
 ```powershell
-# Windows – adapt the path if your env lives elsewhere
-& "$Env:USERPROFILE\.conda\envs\torcheeg-env\python.exe" -X utf8 -u train.py --task landing_digit --engine hybrid
+conda activate eegnex-env
 ```
 
-This implicitly activates the environment, so **no prior `conda activate` is required**.  `-X utf8` (or setting `PYTHONIOENCODING=utf-8`) avoids Unicode errors in Windows consoles; alternatively run `chcp 65001` once per shell.
+Once activated, you can run all subsequent python commands directly.
 
-(If you already have `conda` on PATH you can still `conda activate torcheeg-env` and run `python …`, but the interpreter-path method above is the reference approach used throughout this README.)
+For Windows consoles, you may need to run `chcp 65001` once per shell to avoid Unicode errors.
 
 You are now set – **and when running via the Cursor / Chat agent always keep the terminal in the conversation** so logs appear inline for easier debugging.
 
@@ -46,7 +44,7 @@ produces the following artefacts:
 
 ```
 results/runs/<timestamp>_<task>_<engine>/
-    summary_*.json      # single source of truth
+    summary_*.json      # single source of truth (includes per-fold & per-class metrics)
     report_*.txt        # human-readable
     fold1_confusion.png fold1_curves.png …
     overall_confusion.png
@@ -222,6 +220,20 @@ epochs: 100
 early_stop: 15
 ```
 
+### **4.1 · Available Tasks**
+
+| Task Name | Description | # Classes |
+| :--- | :--- | :--- |
+| `landing_digit` | Predict the final stimulus digit (1–6). | 6 |
+| `no_cross_landing_digit` | Predict the final stimulus digit (1–6), but only for trials where prime and stimulus are both small {1,2,3} or both large {4,5,6}. | 6 |
+| `cardinality` | Binary: Was it a "no-change" trial (e.g., 11, 22)? | 2 |
+| `change_no_change` | Binary: Was there any change between prime and stimulus? | 2 |
+| `direction_binary` | Binary: Was the change direction positive (e.g., 24) or negative (e.g., 42)? Ignores no-change trials. | 2 |
+| `land1_binary` | Binary: Did the trial land on the digit '1'? | 2 |
+| `land1_binary_explicit` | Same as `land1_binary`, but with all conditions explicitly listed in the task file for clarity. | 2 |
+| `numbers_pairs_12_21` | Binary: Was the condition `12` or `21`? | 2 |
+| *... (and all other `numbers_pairs_X_Y` variants)* | *... (Binary classification for other specific pairs)* | 2 |
+
 ---
 
 ## 5 · Hyper-parameter Optimisation (Optuna)
@@ -240,6 +252,23 @@ python scripts/optuna_tune.py `
 
 The tuner samples parameters, calls the chosen engine **in-process**, records
 the `mean_acc`, and appends each trial to `results/runs_index.csv`.
+
+### **2.3 · Opt-in Channel Exclusion**
+
+For certain analyses, it may be desirable to exclude non-scalp (e.g., ocular) channels from the model training process. The project now supports an explicit, opt-in mechanism for this.
+
+#### **How It Works**
+
+The `configs/common.yaml` file contains a named list of channels to exclude, currently defined as `non_scalp`.
+
+To activate this exclusion for a specific training run, simply add the following key to that run's `.yaml` configuration file:
+
+```yaml
+# In your task's .yaml file:
+use_channel_list: non_scalp
+```
+
+When the training starts, the system will print a confirmation message indicating exactly which channels have been removed from the dataset for that run. This makes the channel selection process explicit and reproducible.
 
 ---
 
@@ -263,8 +292,8 @@ the `mean_acc`, and appends each trial to `results/runs_index.csv`.
 ## 8 · Environment Setup (one-time)
 
 ```powershell
-conda create -n torcheeg-env python=3.11 -y
-conda activate torcheeg-env
+conda create -n eegnex-env python=3.11 -y
+conda activate eegnex-env
 
 # CUDA 11.8 build of PyTorch 2.1 (adjust for your GPU / CUDA version)
 pip install torch==2.1.0+cu118 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
@@ -305,7 +334,9 @@ python scripts/prepare_data_for_transfer.py  # produces data/acc_*_dataset/X.npy
 2. Train baseline EEGNet with offline EA on the RTX 4090 GPU:
 
 ```powershell
-& "$Env:USERPROFILE\.conda\envs\transfer-eeg-env\python.exe" -X utf8 -u third_party/DeepTransferEEG/tl/dnn.py 0
+# NOTE: This uses a separate environment
+conda activate transfer-eeg-env
+python -X utf8 -u third_party/DeepTransferEEG/tl/dnn.py 0
 ```
 
 (The positional `0` selects CUDA device 0; omit it to run on CPU.)
@@ -375,16 +406,71 @@ GPU is active.
 
 ---
 
-& "$Env:USERPROFILE\.conda\envs\torcheeg-env\python.exe" -X utf8 -u scripts/optuna_tune.py `
->>   --task  landing_digit `
->>   --engine cnn `
->>   --base  configs/landing_digit/eegnex_base_45hz.yaml `
->>   --space configs/landing_digit/optuna_space_eegnex.yaml `
->>   --db    "sqlite:///optuna_studies/landing_digit_eegnex-acc1-45hz-01.db" `
->>   --trials 48
+## 11 · Explainable AI (XAI) Analysis
 
-We are now using mamba
-mamba activate torcheeg-env
-conda activate torcheeg-env
+After a model has been trained, you can run an Explainable AI (XAI) analysis to understand which EEG channels and time-points were most important for its predictions. This process uses the saved model checkpoints from a training run to generate attribution maps via the Integrated Gradients method.
 
+### 11.1 Prerequisites
+
+Before running the XAI analysis, ensure that the training run was completed with the `save_ckpt: true` flag set in its YAML configuration. This guarantees that the necessary model checkpoint files (`.ckpt`) were saved for each fold.
+
+### 11.2 How to Run XAI Analysis
+
+The analysis is performed by the `run_xai_analysis.py` script, which requires the path to a completed run directory.
+
+```powershell
+# Activate the environment
 conda activate eegnex-env
+
+# Run the XAI analysis on a specific run directory
+python scripts/run_xai_analysis.py --run-dir "results/runs/<your_run_directory_name>"
+```
+
+For example, for a recent run:
+```powershell
+python scripts/run_xai_analysis.py --run-dir "results/runs/20250906_1955_numbers_pairs_12_21_cnn_all_trials_dataset (45hz) V2"
+```
+
+### 11.3 Understanding the Output
+
+The script will create a new subfolder named `xai_analysis/` inside your run directory. The key output is a consolidated report that summarizes the findings across all cross-validation folds:
+
+*   **`consolidated_xai_report.html` / `.pdf`**: A detailed report showing:
+    *   A summary of the top 10 most important channels.
+    *   The peak time window of importance.
+    *   A grand average **Channel Importance Topoplot** with the top 10 channels labeled.
+    *   Grand average and per-fold attribution heatmaps.
+
+This analysis is invaluable for interpreting the model's behavior and linking its predictions back to neurophysiological patterns.
+
+---
+
+## 12 · Example Commands
+
+### Optuna Hyper-parameter Search
+
+```powershell
+# Assumes you have already run: conda activate eegnex-env
+python -X utf8 -u scripts/optuna_tune.py `
+  --task  landing_digit `
+  --engine cnn `
+  --base  configs/landing_digit/eegnex_base_45hz.yaml `
+  --space configs/landing_digit/optuna_space_eegnex.yaml `
+  --db    "sqlite:///optuna_studies/landing_digit_eegnex-acc1-45hz-01.db" `
+  --trials 48
+```
+
+### Environment Activation
+
+This project uses the `eegnex-env` conda environment. You can also use `mamba` for faster activation.
+
+```powershell
+conda activate eegnex-env
+
+also we use conda activate torcheeg-env (secondary)
+# or
+mamba activate eegnex-env
+```
+
+
+conda activate convert_for_cartool
