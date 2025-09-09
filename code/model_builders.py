@@ -252,8 +252,14 @@ def build_eegnex(cfg: Dict[str, Any], num_classes: int, C: int, T: int) -> nn.Mo
     if bool(cfg.get("channel_gate", False)):
         if ChannelGatedModel is None:
             raise ImportError("ChannelGatedModel not available; check code/models/channel_gate.py")
-        # Backward-compatible: prefer channel_gate_init, fallback to legacy gate_init
-        ch_gate_init = float(cfg.get("channel_gate_init", cfg.get("gate_init", 1.0)))
+        # Enforce explicit naming; legacy keys are not accepted
+        if "gate_init" in cfg:
+            raise ValueError("Config key 'gate_init' has been removed. Use 'channel_gate_init'.")
+        if "gate_l1_lambda" in cfg:
+            raise ValueError("Config key 'gate_l1_lambda' has been removed. Use 'channel_gate_l1_lambda'.")
+        if "channel_gate_init" not in cfg:
+            raise ValueError("Missing required 'channel_gate_init' when 'channel_gate' is true.")
+        ch_gate_init = float(cfg["channel_gate_init"])
         model = ChannelGatedModel(model, num_channels=C, gate_init=ch_gate_init)
     return model
 
