@@ -54,6 +54,10 @@ try:
     from .models.channel_gate import ChannelGatedModel
 except ImportError:
     ChannelGatedModel = None
+try:
+    from .models.temporal_gate import TemporalGatedModel
+except ImportError:
+    TemporalGatedModel = None
 
 
 # --- Raw EEG Model Builders ---
@@ -210,7 +214,13 @@ def build_eegnex(cfg: Dict[str, Any], num_classes: int, C: int, T: int) -> nn.Mo
         max_norm_conv=max_norm_conv,
         max_norm_linear=max_norm_linear,
     )
-    # Optional Channel Gate wrapper
+    # Optional Temporal and Channel Gate wrappers
+    if bool(cfg.get("temporal_gate", False)):
+        if TemporalGatedModel is None:
+            raise ImportError("TemporalGatedModel not available; check code/models/temporal_gate.py")
+        tg_init = float(cfg.get("time_gate_init", 1.0))
+        model = TemporalGatedModel(model, num_timepoints=T, gate_init=tg_init)
+
     if bool(cfg.get("channel_gate", False)):
         if ChannelGatedModel is None:
             raise ImportError("ChannelGatedModel not available; check code/models/channel_gate.py")

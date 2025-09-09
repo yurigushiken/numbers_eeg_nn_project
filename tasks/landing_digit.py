@@ -19,11 +19,13 @@ def label_fn(meta: pd.DataFrame):
     """
 
     # Compute the ones-place digit and keep only the six valid classes.
-    # Anything else is mapped to *NaN* so it is excluded downstream.
+    # Anything else is mapped to NaN and will be excluded downstream.
     cond_int = meta["Condition"].astype(int)
     digit = cond_int % 10
 
-    # Keep only digits 1-6; anything else becomes NaN (ignored downstream)
+    # Keep only digits 1–6; anything else becomes NaN (ignored downstream)
     digit = digit.where(digit.between(1, 6), other=np.nan)
 
-    return digit.astype(str) 
+    # IMPORTANT: convert valid digits to strings but preserve NaNs as real NaN
+    # (avoid creating a literal "nan" class)
+    return digit.apply(lambda x: str(int(x)) if pd.notna(x) else np.nan)

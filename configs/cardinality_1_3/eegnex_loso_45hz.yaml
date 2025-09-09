@@ -59,3 +59,9 @@ channel_gate: true
 gate_init: 1.0
 gate_l1_lambda: 0.0002
 
+
+# --- Temporal Gate (optional) ---
+temporal_gate: true
+time_gate_init: 1.0
+time_gate_l1_lambda: 0.0002
+time_gate_tv_lambda: 0.0001

@@ -126,6 +126,7 @@ class TrainingRunner:
         overall_y_true, overall_y_pred = [], []
         per_fold_metrics = []
         fold_split_info = []
+        inner_val_best_accs = []
 
         global_step = 0  # Initialize global counter before the loop
         
@@ -238,6 +239,7 @@ class TrainingRunner:
                 loss_fn = nn.CrossEntropyLoss(cls_w_t)
 
                 best_val_loss = float("inf")
+                best_inner_val_acc = 0.0
                 best_acc = 0.0
                 patience = 0
                 
@@ -268,6 +270,13 @@ class TrainingRunner:
                         l1_lambda = float(self.cfg.get("gate_l1_lambda", 0.0) or 0.0)
                         if l1_lambda > 0.0 and hasattr(model, "gate_l1_penalty"):
                             loss = loss + l1_lambda * model.gate_l1_penalty()
+                        # Add temporal gate penalties if enabled
+                        tg_l1 = float(self.cfg.get("time_gate_l1_lambda", 0.0) or 0.0)
+                        tg_tv = float(self.cfg.get("time_gate_tv_lambda", 0.0) or 0.0)
+                        if tg_l1 > 0.0 and hasattr(model, "time_gate_l1_penalty"):
+                            loss = loss + tg_l1 * model.time_gate_l1_penalty()
+                        if tg_tv > 0.0 and hasattr(model, "time_gate_tv_penalty"):
+                            loss = loss + tg_tv * model.time_gate_tv_penalty()
                         
                         if USE_AMP:
                             scaler.scale(loss).backward()
@@ -327,6 +336,7 @@ class TrainingRunner:
 
                     if val_loss < best_val_loss:
                         best_val_loss = val_loss
+                        best_inner_val_acc = val_acc
                         patience = 0
                         best_state_dict = copy.deepcopy(model.state_dict())
                         if self.run_dir and self.cfg.get("save_ckpt", False):
@@ -372,6 +382,13 @@ class TrainingRunner:
                 log_accs.append(best_acc)
                 overall_y_true.extend(y_true_fold)
                 overall_y_pred.extend(y_pred_fold)
+                inner_val_best_accs.append(best_inner_val_acc)
+
+                # --- Print per-fold inner validation accuracy (at best val loss) ---
+                try:
+                    print(f"Fold {fold+1:02d} | Best inner-val acc (at best val loss): {best_inner_val_acc:.2f}%", flush=True)
+                except Exception:
+                    pass
 
                 # --- Save per-fold Channel Gate values (if present) ---
                 try:
@@ -392,6 +409,24 @@ class TrainingRunner:
                         (self.run_dir / f"fold{fold+1}_gate_values.json").write_text(json.dumps(payload, indent=2))
                 except Exception as _e:
                     print(f"[WARN] Could not save gate values for fold {fold+1}: {_e}")
+
+                # --- Save per-fold Temporal Gate values (if present) ---
+                try:
+                    if hasattr(model, "get_time_gate_values"):
+                        g_time = model.get_time_gate_values().cpu().numpy().tolist()
+                        times_ms = dataset.times_ms.tolist() if hasattr(dataset, "times_ms") else list(range(len(g_time)))
+                        g_np = np.array(g_time)
+                        l1_sum = float(np.sum(g_np))
+                        tv_sum = float(np.sum(np.abs(np.diff(g_np)))) if g_np.size > 1 else 0.0
+                        payload = {
+                            "times_ms": times_ms,
+                            "gates": g_time,
+                            "l1_sum": l1_sum,
+                            "tv_sum": tv_sum,
+                        }
+                        (self.run_dir / f"fold{fold+1}_time_gate_values.json").write_text(json.dumps(payload, indent=2))
+                except Exception as _e:
+                    print(f"[WARN] Could not save temporal gate values for fold {fold+1}: {_e}")
 
                 # --- New: Generate and store per-class metrics for this fold ---
                 report = classification_report(
@@ -441,9 +476,16 @@ class TrainingRunner:
                 title=f"Overall · Mean {mean_acc:.1f}% · Macro-F1 {macro_f1:.1f}%",
             )
         
+        inner_mean_acc = float(np.mean(inner_val_best_accs)) if inner_val_best_accs else 0.0
+        try:
+            print(f"--- Inner mean validation accuracy (best per fold): {inner_mean_acc:.2f}% ---", flush=True)
+        except Exception:
+            pass
         return {
             "mean_acc": float(mean_acc), 
             "std_acc": float(std_acc), 
+            "inner_mean_acc": inner_mean_acc,
+            "inner_accs": inner_val_best_accs,
             "macro_f1": float(macro_f1),
             "weighted_f1": float(weighted_f1),
             "fold_accuracies": log_accs,

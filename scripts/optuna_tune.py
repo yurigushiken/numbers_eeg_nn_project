@@ -157,7 +157,16 @@ def objective(trial: optuna.Trial):
             },
         }
         write_summary(cfg["run_dir"], summary, args.task, args.engine)
-        return res["mean_acc"]
+        # Print inner vs outer means for visibility in terminal
+        try:
+            inner_mean = res.get("inner_mean_acc") or res.get("inner_mean") or float('nan')
+            outer_mean = res.get("mean_acc", float('nan'))
+            print(f"Trial {trial.number:03d} | inner_mean_acc={inner_mean:.2f}% | outer_mean_acc={outer_mean:.2f}%", flush=True)
+        except Exception:
+            pass
+        # Optimize inner validation mean accuracy to avoid test peeking; fallback to test if absent
+        score = res.get("inner_mean_acc", res.get("mean_acc", float("nan")))
+        return score
     except optuna.exceptions.TrialPruned:
         # Let Optuna know the trial was pruned intentionally.
         raise

@@ -59,4 +59,20 @@ class ChannelGatedModel(nn.Module):
     def get_gate_values(self) -> torch.Tensor:
         return torch.nn.functional.softplus(self.gate.log_g).detach()
 
+    # --- Temporal gate passthroughs (if inner backbone has them) ---
+    def time_gate_l1_penalty(self) -> torch.Tensor:
+        if hasattr(self.backbone, "time_gate_l1_penalty"):
+            return getattr(self.backbone, "time_gate_l1_penalty")()
+        return torch.tensor(0.0, device=self.gate.log_g.device)
+
+    def time_gate_tv_penalty(self) -> torch.Tensor:
+        if hasattr(self.backbone, "time_gate_tv_penalty"):
+            return getattr(self.backbone, "time_gate_tv_penalty")()
+        return torch.tensor(0.0, device=self.gate.log_g.device)
+
+    def get_time_gate_values(self) -> torch.Tensor:
+        if hasattr(self.backbone, "get_time_gate_values"):
+            return getattr(self.backbone, "get_time_gate_values")()
+        return torch.empty(0, device=self.gate.log_g.device)
+
 

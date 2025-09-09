@@ -108,39 +108,80 @@ def write_summary(run_dir: Path | str, summary: Dict, task: str, engine: str) ->
     except Exception as _e:
         print(f"[WARN] Optuna index hook error: {_e}") 
 
-    # --- Part 4: Channel Gate Aggregates & Plots (if available) ---
+    # --- Part 4: Channel Gate Aggregates & Plots (robust alignment) ---
     try:
         gate_files = sorted(run_dir.glob("fold*_gate_values.json"))
         if gate_files:
-            import numpy as np
-            gates_stack = []
-            channels = None
-            for fp in gate_files:
-                d = json.loads(fp.read_text())
-                if channels is None:
-                    channels = d.get("channels", [])
-                gates_stack.append(np.array(d.get("gates", []), dtype=float))
-            if gates_stack and channels:
-                gates_mean = np.mean(np.stack(gates_stack, 0), 0)
+            import numpy as np, csv
+            # Load all folds
+            folds = [json.loads(fp.read_text()) for fp in gate_files]
+            # Union of all channels to handle any mismatch
+            channel_sets = [set(f.get("channels", [])) for f in folds if f.get("channels")]
+            all_channels = sorted(set().union(*channel_sets)) if channel_sets else []
+            if all_channels:
+                name_to_idx = {ch: i for i, ch in enumerate(all_channels)}
+                mat = np.full((len(folds), len(all_channels)), np.nan, dtype=float)
+                for r, fdat in enumerate(folds):
+                    chs = fdat.get("channels", []) or []
+                    vals = np.array(fdat.get("gates", []), dtype=float)
+                    for ch, v in zip(chs, vals):
+                        c = name_to_idx.get(ch)
+                        if c is not None:
+                            mat[r, c] = v
+                gates_mean = np.nanmean(mat, axis=0)
+                # Append to TXT report (top-k)
                 top_k = int(summary.get('hyper', {}).get('xai_top_k_channels', 10) or 10)
                 order = np.argsort(gates_mean)[::-1][:top_k]
-                top_lines = [f"{channels[i]}:{gates_mean[i]:.3f}" for i in order]
-                # Append to TXT report
+                top_lines = [f"{all_channels[i]}:{gates_mean[i]:.3f}" for i in order if np.isfinite(gates_mean[i])]
                 with txt_report_path.open("a") as f:
                     f.write("\n\n--- Channel Gate (Aggregated) ---\n")
+                    if np.isnan(mat).any():
+                        f.write("  Note: aligned across folds using channel union with NaN padding.\n")
                     f.write("  Top channels: " + ", ".join(top_lines) + "\n")
-
-                # Optional plots: histogram and topoplot using XAI machinery would live in reporting
-                # For simplicity, save a CSV too
-                import csv
+                # Save CSV
                 csv_path = run_dir / "gate_values_mean.csv"
                 with csv_path.open("w", newline="") as f:
                     w = csv.writer(f)
                     w.writerow(["channel", "gate_mean"])
-                    for ch, val in zip(channels, gates_mean):
-                        w.writerow([ch, float(val)])
+                    for ch, val in zip(all_channels, gates_mean):
+                        w.writerow([ch, float(val) if np.isfinite(val) else "nan"])
     except Exception as e:
         print(f"[WARN] Gate aggregation failed: {e}")
+
+    # --- Temporal gate aggregation & export (robust alignment) ---
+    try:
+        tg_files = sorted(run_dir.glob("fold*_time_gate_values.json"))
+        if tg_files:
+            import numpy as np, csv
+            folds = [json.loads(fp.read_text()) for fp in tg_files]
+            # Normalize times to int(ms) to prevent float mismatch
+            fold_times = [list(map(lambda t: int(round(t)), f.get("times_ms", []))) for f in folds]
+            all_times = sorted(set().union(*map(set, fold_times))) if fold_times else []
+            if all_times:
+                t_to_idx = {t: i for i, t in enumerate(all_times)}
+                mat = np.full((len(folds), len(all_times)), np.nan, dtype=float)
+                for r, (fdat, tlist) in enumerate(zip(folds, fold_times)):
+                    vals = np.array(fdat.get("gates", []), dtype=float)
+                    for t, v in zip(tlist, vals):
+                        c = t_to_idx.get(t)
+                        if c is not None:
+                            mat[r, c] = v
+                g_mean = np.nanmean(mat, axis=0)
+                csv_path = run_dir / "time_gate_values_mean.csv"
+                with csv_path.open("w", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow(["time_ms", "gate_mean"])
+                    for t, v in zip(all_times, g_mean):
+                        w.writerow([float(t), float(v) if np.isfinite(v) else "nan"])
+                with txt_report_path.open("a") as f:
+                    f.write("\n--- Temporal Gate (Aggregated) ---\n")
+                    if np.isnan(mat).any():
+                        f.write("  Note: aligned across folds using time union (int ms) with NaN padding.\n")
+                    if len(g_mean) > 0 and np.any(np.isfinite(g_mean)):
+                        peak_idx = int(np.nanargmax(g_mean))
+                        f.write(f"  Peak gate at ~{float(all_times[peak_idx]):.0f} ms\n")
+    except Exception as e:
+        print(f"[WARN] Time-gate aggregation failed: {e}")
 
     # --- Part 5: NEW - Generate consolidated HTML and PDF reports ---
     print("\n--- Generating Consolidated Reports ---")

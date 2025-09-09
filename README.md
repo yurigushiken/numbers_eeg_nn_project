@@ -50,6 +50,8 @@ results/runs/<timestamp>_<task>_<engine>/
     overall_confusion.png
     fold*_gate_values.json  # if Channel Gate is enabled: per-fold channel gates/L1/sparsity
     gate_values_mean.csv    # aggregated channel gates across folds
+    fold*_time_gate_values.json  # if Temporal Gate is enabled: per-fold time gates/L1/TV
+    time_gate_values_mean.csv    # aggregated temporal gates across folds
 results/runs_index.csv  # global catalogue auto-expanded
 ```
 
@@ -58,6 +60,7 @@ The consolidated reports now include:
 - Weighted F1-Score: weighted by class frequencies
 - Conditions subtitle: when the task exposes a `CONDITIONS` list (e.g., `[44, 55, 66]`)
 - Included channels banner: when `include_channels` is set in the YAML
+- Channel/Temporal Gate aggregates (when gates are enabled), with robust cross-fold alignment
 
 ---
 
@@ -384,6 +387,22 @@ If enabled, each run exports:
 - `gate_values_mean.csv` aggregated across folds
 The TXT report includes a “Channel Gate (Aggregated)” Top‑K section.
 
+### **4.6 · Temporal Gate regularization (optional)**
+
+Enable a learnable, non‑negative per‑timepoint gate vector applied before the backbone. This lets the model learn which time regions matter.
+
+```yaml
+temporal_gate: true        # enable/disable
+time_gate_init: 1.0        # exact via inverse‑softplus init
+time_gate_l1_lambda: 0.0002  # sparsity; tune ~1e‑5–5e‑4
+time_gate_tv_lambda: 0.0001  # smoothness; tune ~1e‑6–1e‑3
+```
+
+If enabled, each run exports:
+- `foldNN_time_gate_values.json` per fold (times_ms, gates, L1 sum, TV sum)
+- `time_gate_values_mean.csv` aggregated across folds
+The TXT report includes a “Temporal Gate (Aggregated)” section with a peak‑time note.
+
 ---
 
 ## 5 · Hyper-parameter Optimisation (Optuna)
@@ -400,8 +419,10 @@ python scripts/optuna_tune.py `
        --trials 36
 ```
 
-The tuner samples parameters, calls the chosen engine **in-process**, records
-the `mean_acc`, and appends each trial to `results/runs_index.csv`.
+The tuner samples parameters, calls the chosen engine **in-process**, and logs both metrics per trial:
+- `inner_mean_acc`: mean of best inner‑validation accuracies across folds (used for model selection)
+- `mean_acc`: outer‑test mean accuracy (held‑out estimate; not used for selection)
+Each trial is appended to `results/runs_index.csv`.
 
 Notes:
 - The tuner now merges `configs/common.yaml` + the base YAML + trial overrides (same precedence as `train.py`). This allows `use_channel_list: non_scalp` to work during studies.
@@ -412,6 +433,22 @@ gate_l1_lambda:
   low: 1.0e-5
   high: 5.0e-4
 ```
+- Temporal Gate terms for search spaces, e.g.:
+```yaml
+time_gate_l1_lambda:
+  method: log_uniform
+  low: 1.0e-5
+  high: 5.0e-4
+time_gate_tv_lambda:
+  method: log_uniform
+  low: 1.0e-6
+  high: 1.0e-3
+```
+- The study optimizes `inner_mean_acc` (leakage‑safe). Use the best trial’s hyper‑parameters to run a final full LOSO evaluation and report outer‑test `mean_acc`.
+- Advanced: dataset caching respects `crop_ms` / `use_channel_list` / `include_channels` per trial. To fully isolate caches across trials, set:
+```yaml
+cache_isolate_trials: true
+```
 
  
 
@@ -421,6 +458,7 @@ gate_l1_lambda:
 |---------|--------|
 | `ModuleNotFoundError: models.cwa_transformer` | Ensure `code/` is on `PYTHONPATH` (train.py inserts it automatically) or run Python directly after `conda activate torcheeg-env`. |
 | Confusion matrix only shows first row | Your spectrogram metadata already contains the `landing_digit` column; the task’s `label_fn` now checks for it. |
+| `landing_digit` shows a 7th "nan" class | Fixed: the task now preserves NaNs (not the string "nan"); pull latest code. |
 
 ---
 
@@ -444,8 +482,15 @@ pip install torch==2.1.0+cu118 torchvision torchaudio --index-url https://downlo
 # Core scientific stack
 pip install torcheeg mne scikit-learn matplotlib pandas seaborn pyyaml pyarrow
 
+# EEGNeX (Braindecode) for the `eegnex` model
+pip install "braindecode>=1.1.0,<2.0.0"
+
 # Extra dependencies for Optuna tuning
 pip install timm optuna plotly
+
+# Optional: HTML/PDF consolidated reports (first run may need a browser install)
+pip install playwright
+python -m playwright install chromium
 
 # add project code to PYTHONPATH for interactive work (optional)
 set PYTHONPATH=%PYTHONPATH%;D:\numbers_eeg_nn_project\code

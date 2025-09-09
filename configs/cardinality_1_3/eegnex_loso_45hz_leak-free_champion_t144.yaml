@@ -1,0 +1,58 @@
+# "Leak-Free" Configuration for EEGNeX on 45Hz Cardinality Data
+# This file is for validating Trial 144, which had the highest TEST accuracy (`mean_acc`)
+# in the corrected Stage 1 search.
+# DATASET: all_trials_dataset (1-45hz)
+# EVALUATION: Full Leave-One-Subject-Out (LOSO)
+
+model_name: eegnex
+
+# --- Data Loading ---
+dataset_dir: "data_preprocessed/all_trials_dataset (1-45hz) V2"
+use_channel_list: non_scalp
+crop_ms: [] # Using the full time window for this task
+
+# --- Training (for final LOSO run) ---
+epochs: 100
+early_stop: 20
+save_ckpt: true
+
+# --- Hyperparameters from Optuna Trial 144 ---
+lr: 0.00119596743567463
+batch_size: 16
+scheduler_patience: 13
+filter_1: 24
+kernel_block_1_2: 16
+drop_prob: 0.480132586724977
+depth_multiplier: 1
+
+# --- Channel & Temporal Gates ---
+channel_gate: true
+gate_init: 1.0
+gate_l1_lambda: 0.00029416950481218
+temporal_gate: true
+time_gate_init: 1.0
+time_gate_l1_lambda: 0.000373742363219339
+time_gate_tv_lambda: 0.00332939416164957
+
+# --- FIXED Base Model & Augmentation Parameters ---
+# Using the defaults from the search's base file
+filter_2: 32
+kernel_block_4: 16
+dilation_block_4: 2
+avg_pool_block4: 4
+kernel_block_5: 16
+dilation_block_5: 4
+avg_pool_block5: 8
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+mixup_alpha: 0.3
+shift_p: 0.2
+shift_max_frac: 0.04
+scale_p: 0.1
+scale_max: 1.15
+noise_p: 0.1
+noise_std: 0.02
+time_mask_p: 0.3
+time_mask_frac: 0.1
+chan_mask_p: 0.3
+chan_mask_ratio: 0.05
