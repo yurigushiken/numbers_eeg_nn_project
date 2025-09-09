@@ -21,6 +21,18 @@ except Exception:
 
 _CACHE: Dict[str, Any] = {}
 
+def _cfg_fingerprint(cfg: Dict[str, Any]) -> str:
+    """Stable fingerprint for config options that alter loaded tensors.
+
+    Includes time cropping and channel selection knobs; optionally isolates
+    trials when 'cache_isolate_trials' is set (uses trial_id if present).
+    """
+    crop = tuple(cfg.get("crop_ms", [])) or None
+    use_list = cfg.get("use_channel_list") or None
+    include = tuple(cfg.get("include_channels", [])) or None
+    trial = cfg.get("trial_id") if cfg.get("cache_isolate_trials") else None
+    return f"crop={crop}|use={use_list}|include={include}|trial={trial}"
+
 class BaseDataset(Dataset):
     """Abstract base class for datasets in this project."""
     def __init__(self, cfg: Dict[str, Any], label_fn: Callable):
@@ -49,7 +61,8 @@ class RawEEGDataset(BaseDataset):
         
     def _load_data(self) -> Tuple[torch.Tensor, torch.Tensor, np.ndarray, List[str]]:
         """Loads and caches data from .fif files."""
-        cache_key = f"{self.root.resolve()}::{self.label_fn.__name__}"
+        finger = _cfg_fingerprint(self.cfg)
+        cache_key = f"{self.root.resolve()}::{self.label_fn.__name__}::{finger}"
         if cache_key in _CACHE:
             return _CACHE[cache_key]
 
@@ -172,7 +185,8 @@ class RawEEGDataset(BaseDataset):
         # After dropping channels, the definitive source is the MNE object's ch_names
         # We need to re-create it to be sure, as the instance isn't stored.
         # This is a bit redundant but guarantees correctness.
-        cache_key = f"{self.root.resolve()}::{self.label_fn.__name__}::__ch_names__"
+        finger = _cfg_fingerprint(self.cfg)
+        cache_key = f"{self.root.resolve()}::{self.label_fn.__name__}::__ch_names__::{finger}"
         if cache_key in _CACHE:
             return _CACHE[cache_key]
 
