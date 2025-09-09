@@ -297,7 +297,8 @@ class TrainingRunner:
                                     out = model(input_adapted)
                                 loss = loss_fn(out.float(), yb)
                         # Add L1 penalty on channel gates if enabled
-                        l1_lambda = float(self.cfg.get("gate_l1_lambda", 0.0) or 0.0)
+                        # Backward-compatible: prefer channel_gate_l1_lambda, fallback to legacy gate_l1_lambda
+                        l1_lambda = float(self.cfg.get("channel_gate_l1_lambda", self.cfg.get("gate_l1_lambda", 0.0)) or 0.0)
                         if l1_lambda > 0.0 and hasattr(model, "gate_l1_penalty"):
                             loss = loss + l1_lambda * model.gate_l1_penalty()
                         # Add temporal gate penalties if enabled

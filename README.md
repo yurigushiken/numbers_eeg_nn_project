@@ -386,9 +386,9 @@ chan_mask_ratio: 0.05
 Enable a learnable, non‑negative per‑channel gate vector with L1 regularization for parsimony. This lets the model learn which electrodes matter without manual pre‑selection.
 
 ```yaml
-channel_gate: true       # enable/disable
-gate_init: 1.0           # exact via inverse‑softplus init
-gate_l1_lambda: 0.0002   # tune 1e‑5–5e‑4
+channel_gate: true             # enable/disable
+channel_gate_init: 1.0         # exact via inverse‑softplus init
+channel_gate_l1_lambda: 0.0002 # tune 1e‑5–5e‑4
 ```
 
 If enabled, each run exports:
@@ -438,7 +438,7 @@ Notes:
 - The tuner now merges `configs/common.yaml` + the base YAML + trial overrides (same precedence as `train.py`). This allows `use_channel_list: non_scalp` to work during studies.
 - You can also include a Channel Gate term in your search space, e.g.:
 ```yaml
-gate_l1_lambda:
+channel_gate_l1_lambda:
   method: log_uniform
   low: 1.0e-5
   high: 5.0e-4

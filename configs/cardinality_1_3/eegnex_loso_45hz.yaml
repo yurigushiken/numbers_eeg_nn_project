@@ -57,8 +57,8 @@ chan_mask_ratio: 0.05
 
 # --- Channel Gate (for LOSO baseline; can be disabled if desired) ---
 channel_gate: true
-gate_init: 1.0
-gate_l1_lambda: 0.0002
+channel_gate_init: 1.0
+channel_gate_l1_lambda: 0.0002
 
 
 # --- Temporal Gate (optional) ---

@@ -252,8 +252,9 @@ def build_eegnex(cfg: Dict[str, Any], num_classes: int, C: int, T: int) -> nn.Mo
     if bool(cfg.get("channel_gate", False)):
         if ChannelGatedModel is None:
             raise ImportError("ChannelGatedModel not available; check code/models/channel_gate.py")
-        gate_init = float(cfg.get("gate_init", 1.0))
-        model = ChannelGatedModel(model, num_channels=C, gate_init=gate_init)
+        # Backward-compatible: prefer channel_gate_init, fallback to legacy gate_init
+        ch_gate_init = float(cfg.get("channel_gate_init", cfg.get("gate_init", 1.0)))
+        model = ChannelGatedModel(model, num_channels=C, gate_init=ch_gate_init)
     return model
 
 RAW_EEG_MODELS = {

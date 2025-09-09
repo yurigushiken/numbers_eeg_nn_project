@@ -43,20 +43,20 @@ max_norm_conv: 1.0
 max_norm_linear: 0.25
 
 # --- FIXED Augmentations (Using a strong, general baseline for Stage 1) ---
-mixup_alpha: 0.3
-shift_p: 0.2
+mixup_alpha: 0.0
+shift_p: 0.0
 shift_max_frac: 0.04
-scale_p: 0.1
+scale_p: 0.0
 scale_max: 1.15
-noise_p: 0.1
+noise_p: 0.0
 noise_std: 0.02
-time_mask_p: 0.3
+time_mask_p: 0.0
 time_mask_frac: 0.1
-chan_mask_p: 0.3
+chan_mask_p: 0.0
 chan_mask_ratio: 0.05
 
 # --- Channel & Temporal Gates ---
-channel_gate: true
-gate_init: 1.0
-temporal_gate: true
+channel_gate: false
+channel_gate_init: 1.0
+temporal_gate: false
 time_gate_init: 1.0
