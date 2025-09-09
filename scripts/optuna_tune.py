@@ -48,6 +48,7 @@ if 'utils' in sys.modules:
 import tasks as task_reg
 import engines as engine_reg
 from utils.summary import write_summary
+from utils.seeding import seed_everything
 
 
 # -----------------------------------------------------------------------------
@@ -114,6 +115,8 @@ def objective(trial: optuna.Trial):
             raise ValueError(f"Unsupported method {m} for param {name}")
 
     cfg = build_cfg(args.base, sampled)
+    # Ensure deterministic initialization and dataloader behavior if seed is provided
+    seed_everything(cfg.get("seed"))
     cfg["task"] = args.task
     ds_tag = Path(cfg.get("dataset_dir", "unknown")).name
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -159,13 +162,15 @@ def objective(trial: optuna.Trial):
         write_summary(cfg["run_dir"], summary, args.task, args.engine)
         # Print inner vs outer means for visibility in terminal
         try:
-            inner_mean = res.get("inner_mean_acc") or res.get("inner_mean") or float('nan')
+            inner_mean = res.get("inner_mean_macro_f1") or res.get("inner_mean_acc") or res.get("inner_mean") or float('nan')
             outer_mean = res.get("mean_acc", float('nan'))
-            print(f"Trial {trial.number:03d} | inner_mean_acc={inner_mean:.2f}% | outer_mean_acc={outer_mean:.2f}%", flush=True)
+            print(f"Trial {trial.number:03d} | inner_mean_macro_f1={inner_mean:.2f}% | outer_mean_acc={outer_mean:.2f}%", flush=True)
         except Exception:
             pass
-        # Optimize inner validation mean accuracy to avoid test peeking; fallback to test if absent
-        score = res.get("inner_mean_acc", res.get("mean_acc", float("nan")))
+        # Default Optuna objective: inner validation macro-F1 (avoid test peeking); fallback to inner acc, then outer acc
+        score = res.get("inner_mean_macro_f1",
+                        res.get("inner_mean_acc",
+                                res.get("mean_acc", float("nan"))))
         return score
     except optuna.exceptions.TrialPruned:
         # Let Optuna know the trial was pruned intentionally.

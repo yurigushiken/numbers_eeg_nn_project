@@ -37,6 +37,8 @@ Engines currently available
   • Data representation is also tunable: four offline-generated spectrogram variants (`128-16`, `128-32`, `64-8`, `256-32`).
 | `cnn_spectrogram` | 128 × 128 CWT spectrograms                 | Image-classification CNN baseline |
 
+Note: For the NUMBERS‑COG study, we focus on the `cnn` engine with `model_name: eegnex`.
+
 All three engines are launched through `train.py`.  Internally they all call the
 shared `code/training_runner.py`, so every experiment (raw EEG or spectrogram)
 follows the exact same LOSO, early-stopping and reporting logic.  Each run
@@ -277,20 +279,18 @@ lr: 0.00078
 
 ### **4.2 · Reproducibility & Seeding**
 
-By default, all training runs are **non-deterministic**. The random seeds for `NumPy` and `PyTorch` are not fixed, meaning that running the exact same command twice may produce slightly different results due to different random weight initializations and data shuffling. This is the recommended mode for hyperparameter searches (e.g., with Optuna), as it provides a more robust estimate of a model's performance.
-
-To make a run fully reproducible, you can specify a fixed seed.
-
-#### **How to Enable a Fixed Seed**
-
-To ensure a run is deterministic, add the `seed` key to the appropriate `.yaml` configuration file:
-
+For Optuna studies, we fix randomness to ensure identical data splits and initial weights across trials:
+- Add to the base YAML:
 ```yaml
-# In your task's .yaml file:
 seed: 42
+random_state: 42
+inner_val_frac: 0.2
 ```
+- The tuner calls `seed_everything(cfg.seed)` per trial; outer and inner subject-aware splits use `random_state`.
 
-When this key is present, the training script will print a confirmation message (`--- Running with fixed seed: 42 ---`) and set the seeds for all relevant libraries. It is highly recommended to use a fixed seed for all final, reported results to ensure they are perfectly reproducible.
+For final reported results, you can either:
+- Run full LOSO with the tuned hyper‑parameters (seeded), or
+- Report a mean ± std over multiple seeds.
 
 ### **4.3 · Data Preprocessing Options**
 
@@ -346,6 +346,15 @@ When present, the loader prints a confirmation message, for example:
 
 ```
 INFO: Applying time cropping from 50ms to 200ms (0.050s to 0.200s)
+```
+
+Example (post‑stimulus only; 45 Hz dataset):
+```yaml
+crop_ms: [0, 596]
+```
+The loader prints:
+```
+INFO: Applying time cropping from 0ms to 596ms (0.000s to 0.596s)
 ```
 
 Notes:
@@ -419,8 +428,9 @@ python scripts/optuna_tune.py `
        --trials 36
 ```
 
-The tuner samples parameters, calls the chosen engine **in-process**, and logs both metrics per trial:
-- `inner_mean_acc`: mean of best inner‑validation accuracies across folds (used for model selection)
+The tuner samples parameters, calls the chosen engine **in-process**, and logs key metrics per trial:
+- `inner_mean_macro_f1`: mean of best inner‑validation macro‑F1 across folds (used for model selection)
+- `inner_mean_acc`: mean of best inner‑validation accuracies (logged)
 - `mean_acc`: outer‑test mean accuracy (held‑out estimate; not used for selection)
 Each trial is appended to `results/runs_index.csv`.
 
@@ -441,10 +451,10 @@ time_gate_l1_lambda:
   high: 5.0e-4
 time_gate_tv_lambda:
   method: log_uniform
-  low: 1.0e-6
-  high: 1.0e-3
+  low: 1.0e-4
+  high: 1.0e-2
 ```
-- The study optimizes `inner_mean_acc` (leakage‑safe). Use the best trial’s hyper‑parameters to run a final full LOSO evaluation and report outer‑test `mean_acc`.
+- The study optimizes `inner_mean_macro_f1` (leakage‑safe). Use the best trial’s hyper‑parameters to run a final full LOSO evaluation and report outer‑test `mean_acc`.
 - Advanced: dataset caching respects `crop_ms` / `use_channel_list` / `include_channels` per trial. To fully isolate caches across trials, set:
 ```yaml
 cache_isolate_trials: true
@@ -672,5 +682,11 @@ also we use conda activate torcheeg-env (secondary)
 mamba activate eegnex-env
 ```
 
+
+# 5.1 · Recommended staged tuning
+
+- Stage 1 (training & gating): tune `lr`, `batch_size`, `scheduler_patience`, `drop_prob`, `filter_1`, `kernel_block_1_2`, `gate_l1_lambda`, `time_gate_l1_lambda`, `time_gate_tv_lambda` (fix `auto_lr: false`)
+- Stage 2 (architecture): fix Stage 1 winners; tune `filter_2`, `kernel_block_4/5`, `avg_pool_block4/5`, `dilation_block_4/5`, `depth_multiplier`, `activation`, and (optionally) `max_norm_*`
+- Stage 3 (augmentations): fix architecture; tune `mixup_alpha`, `shift_*`, `scale_*`, `noise_*`, `time_mask_*`, `chan_mask_*`
 
 conda activate convert_for_cartool

@@ -1,0 +1,62 @@
+# EEGNeX on 45Hz Data – Base config for STAGE 1 Architecture Search
+# TASK: 3-class Cardinality (11, 22, 33). Full 700ms trials.
+# This search includes tuning the new Channel and Temporal Gates.
+
+model_name: eegnex
+
+# --- Data Loading ---
+dataset_dir: "data_preprocessed/all_trials_dataset (45hz) V2"
+use_channel_list: non_scalp
+crop_ms: [0, 596] # Using the full post-stimulus time window for this task.
+
+# --- Training (for fast search) ---
+n_folds: 4
+epochs: 40
+early_stop: 10
+random_state: 42
+seed: 42
+inner_val_frac: 0.2
+auto_lr: false
+
+# --- PLACEHOLDER values for Tuned Parameters ---
+# Optuna will overwrite these.
+lr: 0.0008
+batch_size: 16
+scheduler_patience: 10
+filter_1: 16
+kernel_block_1_2: 64
+drop_prob: 0.5
+gate_l1_lambda: 0.0001
+time_gate_l1_lambda: 0.0001
+time_gate_tv_lambda: 0.001
+
+# --- FIXED Architectural & Base Parameters ---
+depth_multiplier: 1
+filter_2: 32
+kernel_block_4: 16
+dilation_block_4: 2
+avg_pool_block4: 4
+kernel_block_5: 16
+dilation_block_5: 4
+avg_pool_block5: 8
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+
+# --- FIXED Augmentations (Using a strong, general baseline for Stage 1) ---
+mixup_alpha: 0.3
+shift_p: 0.2
+shift_max_frac: 0.04
+scale_p: 0.1
+scale_max: 1.15
+noise_p: 0.1
+noise_std: 0.02
+time_mask_p: 0.3
+time_mask_frac: 0.1
+chan_mask_p: 0.3
+chan_mask_ratio: 0.05
+
+# --- Channel & Temporal Gates ---
+channel_gate: true
+gate_init: 1.0
+temporal_gate: true
+time_gate_init: 1.0

@@ -93,6 +93,16 @@ class TrainingRunner:
     def get_optimizer(self, model: nn.Module) -> Tuple[optim.Optimizer, torch.optim.lr_scheduler._LRScheduler]:
         """Creates optimizer and scheduler from config."""
         lr = float(self.cfg.get("lr", 1e-4))
+        # Optional linear LR scaling with batch size
+        if bool(self.cfg.get("auto_lr", False)):
+            try:
+                ref_bs = int(self.cfg.get("auto_lr_ref_bs", 64))
+                bs = int(self.cfg.get("batch_size", ref_bs))
+                if bs != ref_bs and ref_bs > 0:
+                    lr = lr * (bs / ref_bs)
+                    print(f"[auto_lr] Scaling LR to {lr:.3e} for batch_size={bs} (ref {ref_bs})", flush=True)
+            except Exception:
+                pass
         wd = float(self.cfg.get("weight_decay", 0.0) or 0.0)
         
         opt = optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
@@ -127,6 +137,7 @@ class TrainingRunner:
         per_fold_metrics = []
         fold_split_info = []
         inner_val_best_accs = []
+        inner_val_best_macro_f1s = []
 
         global_step = 0  # Initialize global counter before the loop
         
@@ -240,6 +251,7 @@ class TrainingRunner:
 
                 best_val_loss = float("inf")
                 best_inner_val_acc = 0.0
+                best_inner_val_macro_f1 = 0.0
                 best_acc = 0.0
                 patience = 0
                 
@@ -250,6 +262,7 @@ class TrainingRunner:
                     # --- Train Step ---
                     model.train()
                     train_loss_total = 0.0
+                    mixup_alpha = float(self.cfg.get("mixup_alpha", 0.0) or 0.0)
                     for xb, yb in tr_ld:
                         if isinstance(xb, (list, tuple)):
                             xb = [x.to(DEVICE) for x in xb]
@@ -261,11 +274,28 @@ class TrainingRunner:
                         
                         opt.zero_grad()
                         with autocast(enabled=USE_AMP):
-                            if isinstance(input_adapted, (list, tuple)):
-                                out = model(*input_adapted)
+                            if mixup_alpha > 0.0:
+                                # --- MixUp ---
+                                lam = float(np.random.beta(mixup_alpha, mixup_alpha))
+                                perm = torch.randperm(yb.size(0), device=yb.device)
+                                yb_perm = yb[perm]
+                                if isinstance(input_adapted, (list, tuple)):
+                                    mixed_inputs = []
+                                    for xi in input_adapted:
+                                        mixed_inputs.append(lam * xi + (1.0 - lam) * xi[perm])
+                                    out = model(*mixed_inputs)
+                                else:
+                                    mixed_input = lam * input_adapted + (1.0 - lam) * input_adapted[perm]
+                                    out = model(mixed_input)
+                                ce1 = loss_fn(out.float(), yb)
+                                ce2 = loss_fn(out.float(), yb_perm)
+                                loss = lam * ce1 + (1.0 - lam) * ce2
                             else:
-                                out = model(input_adapted)
-                            loss = loss_fn(out.float(), yb)
+                                if isinstance(input_adapted, (list, tuple)):
+                                    out = model(*input_adapted)
+                                else:
+                                    out = model(input_adapted)
+                                loss = loss_fn(out.float(), yb)
                         # Add L1 penalty on channel gates if enabled
                         l1_lambda = float(self.cfg.get("gate_l1_lambda", 0.0) or 0.0)
                         if l1_lambda > 0.0 and hasattr(model, "gate_l1_penalty"):
@@ -294,6 +324,8 @@ class TrainingRunner:
                     # --- Inner Validation Step (used for early stopping & scheduler) ---
                     model.eval()
                     val_loss_total, correct, total = 0.0, 0, 0
+                    val_y_true_epoch: List[int] = []
+                    val_y_pred_epoch: List[int] = []
                     with torch.no_grad():
                         for xb, yb in va_ld:
                             yb_cpu = yb
@@ -317,9 +349,17 @@ class TrainingRunner:
                             preds = out.argmax(1).cpu()
                             correct += (preds == yb_cpu).sum().item()
                             total += yb_cpu.size(0)
+                            # Collect for macro-F1 on inner validation
+                            val_y_true_epoch.extend(yb_cpu.tolist())
+                            val_y_pred_epoch.extend(preds.tolist())
 
                     val_loss = val_loss_total / len(va_ld)
                     val_acc = 100 * correct / total
+                    # Compute macro-F1 for inner validation at this epoch
+                    try:
+                        val_macro_f1 = f1_score(val_y_true_epoch, val_y_pred_epoch, average="macro") * 100
+                    except Exception:
+                        val_macro_f1 = 0.0
                     val_history.append(val_loss)
                     acc_history.append(val_acc)
 
@@ -337,6 +377,7 @@ class TrainingRunner:
                     if val_loss < best_val_loss:
                         best_val_loss = val_loss
                         best_inner_val_acc = val_acc
+                        best_inner_val_macro_f1 = val_macro_f1
                         patience = 0
                         best_state_dict = copy.deepcopy(model.state_dict())
                         if self.run_dir and self.cfg.get("save_ckpt", False):
@@ -383,10 +424,15 @@ class TrainingRunner:
                 overall_y_true.extend(y_true_fold)
                 overall_y_pred.extend(y_pred_fold)
                 inner_val_best_accs.append(best_inner_val_acc)
+                inner_val_best_macro_f1s.append(best_inner_val_macro_f1)
 
                 # --- Print per-fold inner validation accuracy (at best val loss) ---
                 try:
-                    print(f"Fold {fold+1:02d} | Best inner-val acc (at best val loss): {best_inner_val_acc:.2f}%", flush=True)
+                    print(
+                        f"Fold {fold+1:02d} | Best inner-val acc (at best val loss): {best_inner_val_acc:.2f}% | "
+                        f"Best inner-val macro-F1: {best_inner_val_macro_f1:.2f}%",
+                        flush=True
+                    )
                 except Exception:
                     pass
 
@@ -477,15 +523,22 @@ class TrainingRunner:
             )
         
         inner_mean_acc = float(np.mean(inner_val_best_accs)) if inner_val_best_accs else 0.0
+        inner_mean_macro_f1 = float(np.mean(inner_val_best_macro_f1s)) if inner_val_best_macro_f1s else 0.0
         try:
-            print(f"--- Inner mean validation accuracy (best per fold): {inner_mean_acc:.2f}% ---", flush=True)
+            print(
+                f"--- Inner mean validation accuracy (best per fold): {inner_mean_acc:.2f}% | "
+                f"Inner mean macro-F1: {inner_mean_macro_f1:.2f}% ---",
+                flush=True
+            )
         except Exception:
             pass
         return {
             "mean_acc": float(mean_acc), 
             "std_acc": float(std_acc), 
             "inner_mean_acc": inner_mean_acc,
+            "inner_mean_macro_f1": inner_mean_macro_f1,
             "inner_accs": inner_val_best_accs,
+            "inner_macro_f1s": inner_val_best_macro_f1s,
             "macro_f1": float(macro_f1),
             "weighted_f1": float(weighted_f1),
             "fold_accuracies": log_accs,

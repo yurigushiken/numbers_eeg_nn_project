@@ -180,25 +180,45 @@ def build_dual_stream_cnn(cfg: Dict[str, Any], num_classes: int, C: int, T: int)
 def build_eegnex(cfg: Dict[str, Any], num_classes: int, C: int, T: int) -> nn.Module:
     """Wrapper around braindecode.models.EEGNeX.
 
-    Exposes key hyper-parameters via cfg with sensible defaults.
+    Exposes key hyper-parameters via cfg with sensible defaults and forwards
+    all tuned architectural knobs used in our YAML/Optuna spaces.
     """
     if BD_EEGNeX is None:
         raise ImportError("Braindecode EEGNeX not available. Install braindecode>=1.1.0.")
 
-    activation = nn.ELU
+    # --- Activation selection (configurable; default ELU) ---
+    _act_map = {
+        "elu": nn.ELU,
+        "relu": nn.ReLU,
+        "leaky_relu": nn.LeakyReLU,
+        "gelu": nn.GELU,
+        "celu": nn.CELU,
+        "silu": nn.SiLU,
+    }
+    act_name = str(cfg.get("activation", "elu")).lower()
+    activation = _act_map.get(act_name, nn.ELU)
+
+    # --- Core capacity & regularization ---
     depth_multiplier = int(cfg.get("depth_multiplier", 2))
     filter_1 = int(cfg.get("filter_1", 8))
     filter_2 = int(cfg.get("filter_2", 32))
     drop_prob = float(cfg.get("drop_prob", 0.5))
 
-    # EEGNeX expects integers for kernel lengths, dilations and pooling sizes.
+    # --- Kernel sizes, dilations and pooling (per block) ---
     kernel_block_1_2 = int(cfg.get("kernel_block_1_2", 32))
+    # Newly forwarded params (previously ignored in builder)
+    kernel_block_4 = int(cfg.get("kernel_block_4", 16))
+    kernel_block_5 = int(cfg.get("kernel_block_5", 16))
+    avg_pool_block4 = int(cfg.get("avg_pool_block4", 4))
+    avg_pool_block5 = int(cfg.get("avg_pool_block5", 8))
     dilation_block_4 = int(cfg.get("dilation_block_4", 2))
     dilation_block_5 = int(cfg.get("dilation_block_5", 4))
 
+    # --- Constraints ---
     max_norm_conv = float(cfg.get("max_norm_conv", 1.0))
     max_norm_linear = float(cfg.get("max_norm_linear", 0.25))
 
+    # Instantiate EEGNeX with full set of supported knobs we use
     model = BD_EEGNeX(
         n_chans=C,
         n_outputs=num_classes,
@@ -209,11 +229,19 @@ def build_eegnex(cfg: Dict[str, Any], num_classes: int, C: int, T: int) -> nn.Mo
         filter_2=filter_2,
         drop_prob=drop_prob,
         kernel_block_1_2=kernel_block_1_2,
+        # Newly forwarded architectural parameters
+        kernel_block_4=kernel_block_4,
+        kernel_block_5=kernel_block_5,
+        avg_pool_block4=avg_pool_block4,
+        avg_pool_block5=avg_pool_block5,
+        # Existing dilations
         dilation_block_4=dilation_block_4,
         dilation_block_5=dilation_block_5,
+        # Constraints
         max_norm_conv=max_norm_conv,
         max_norm_linear=max_norm_linear,
     )
+
     # Optional Temporal and Channel Gate wrappers
     if bool(cfg.get("temporal_gate", False)):
         if TemporalGatedModel is None:
