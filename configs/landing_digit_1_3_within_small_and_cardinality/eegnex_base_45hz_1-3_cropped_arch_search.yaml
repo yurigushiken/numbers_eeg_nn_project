@@ -1,0 +1,53 @@
+# EEGNeX on 45Hz Data – Base config for STAGE 1 Architecture Search
+# TASK: 3-class (1,2,3) with a 50-250ms cropped time window.
+
+model_name: eegnex
+
+# --- Data Loading ---
+dataset_dir: "data_preprocessed/all_trials_dataset (1-45hz) V2"
+use_channel_list: non_scalp
+include_channels: []
+xai_top_k_channels: 30
+crop_ms: [50, 250] # CRITICAL: Truncate data to the early sensory window.
+
+# --- Training (for fast search) ---
+n_folds: 4
+epochs: 40
+early_stop: 10
+
+# --- PLACEHOLDER values for Tuned Parameters ---
+# Optuna will overwrite these.
+lr: 0.0005
+batch_size: 16
+scheduler_patience: 10
+filter_1: 16
+kernel_block_1_2: 32
+drop_prob: 0.5
+
+# --- FIXED Architectural & Base Parameters ---
+# These are kept constant during this initial architecture search.
+depth_multiplier: 1
+filter_2: 32
+kernel_block_4: 16
+dilation_block_4: 2
+avg_pool_block4: 4
+kernel_block_5: 16
+dilation_block_5: 4
+avg_pool_block5: 8
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+# Using default augmentations as a starting point. They will be tuned in Stage 3.
+mixup_alpha: 0.2
+shift_p: 0.5
+scale_p: 0.1
+noise_p: 0.3
+time_mask_p: 0.1
+chan_mask_p: 0.1
+# ... and other fixed values
+shift_min_frac: 0.0
+shift_max_frac: 0.02
+scale_min: 0.9
+scale_max: 1.1
+noise_std: 0.02
+time_mask_frac: 0.1
+chan_mask_ratio: 0.05

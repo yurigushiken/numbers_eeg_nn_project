@@ -50,6 +50,10 @@ try:
 except ImportError:
     resnet18 = None
     ResNet18_Weights = None
+try:
+    from .models.channel_gate import ChannelGatedModel
+except ImportError:
+    ChannelGatedModel = None
 
 
 # --- Raw EEG Model Builders ---
@@ -206,6 +210,12 @@ def build_eegnex(cfg: Dict[str, Any], num_classes: int, C: int, T: int) -> nn.Mo
         max_norm_conv=max_norm_conv,
         max_norm_linear=max_norm_linear,
     )
+    # Optional Channel Gate wrapper
+    if bool(cfg.get("channel_gate", False)):
+        if ChannelGatedModel is None:
+            raise ImportError("ChannelGatedModel not available; check code/models/channel_gate.py")
+        gate_init = float(cfg.get("gate_init", 1.0))
+        model = ChannelGatedModel(model, num_channels=C, gate_init=gate_init)
     return model
 
 RAW_EEG_MODELS = {

@@ -1,0 +1,25 @@
+# Optuna search space for EEGNeX on the CROPPED 1-3 task - STAGE 2
+# This search focuses on the parameters of the dilated convolutional blocks (4 and 5),
+# keeping the now-optimized core architecture fixed.
+
+# --- Block 4 Parameters ---
+kernel_block_4:
+  method: categorical
+  choices: [8, 16, 24] # Test different kernel sizes for the first dilated block.
+dilation_block_4:
+  method: categorical
+  choices: [1, 2, 4] # Test different dilation rates.
+avg_pool_block4:
+  method: categorical
+  choices: [2, 4] # With a short signal, smaller pooling is likely better.
+
+# --- Block 5 Parameters ---
+kernel_block_5:
+  method: categorical
+  choices: [8, 16, 24] # Test different kernel sizes for the second dilated block.
+dilation_block_5:
+  method: categorical
+  choices: [1, 2, 4] # Smaller dilations may be better for a shorter signal.
+avg_pool_block5:
+  method: categorical
+  choices: [2, 4, 8] # Test a range of final pooling sizes.

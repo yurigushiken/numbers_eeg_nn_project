@@ -33,15 +33,15 @@ def write_summary(run_dir: Path | str, summary: Dict, task: str, engine: str) ->
 
     # --- Section 1: Overall Performance ---
     report_parts.append("\n--- Overall Performance ---")
-    report_parts.append(f"  Mean Accuracy     : {summary.get('mean_acc', 0.0):.2f}% (std: {summary.get('std_acc', 0.0):.2f}%)")
+    report_parts.append(f"  Mean Accuracy     : {summary.get('mean_acc', 0.0):.2f}% (std: {summary.get('std_acc', 0.0):.2f}%)  (The overall average correctness across all subjects)")
     macro_f1 = summary.get('macro_f1', 0.0)
     if macro_f1: # Only show if calculated
-        report_parts.append(f"  Macro F1-Score    : {macro_f1:.2f}%")
-        report_parts.append(f"  Weighted F1-Score : {summary.get('weighted_f1', 0.0):.2f}%")
+        report_parts.append(f"  Macro F1-Score    : {macro_f1:.2f}%  (A class-balanced score, treating each digit's performance equally)")
+        report_parts.append(f"  Weighted F1-Score : {summary.get('weighted_f1', 0.0):.2f}%  (Score weighted by the frequency of each digit in the test set)")
 
     fold_accs = summary.get('fold_accuracies', [])
     if fold_accs:
-        report_parts.append(f"  Fold Accuracy Range : [{min(fold_accs):.2f}% - {max(fold_accs):.2f}%]")
+        report_parts.append(f"  Fold Accuracy Range : [{min(fold_accs):.2f}% - {max(fold_accs):.2f}%]  (The performance on the best- vs. worst-performing subjects)")
 
     # --- Section 2: Class Performance ---
     class_perf = summary.get("per_class_f1_mean", [])
@@ -63,6 +63,14 @@ def write_summary(run_dir: Path | str, summary: Dict, task: str, engine: str) ->
     for key in key_params:
         if key in hyper:
             report_parts.append(f"  {key:<20}: {hyper[key]}")
+
+    # NEW: Channel selection details for transparency/reproducibility
+    include_list = hyper.get("include_channels")
+    if isinstance(include_list, (list, tuple)) and len(include_list) > 0:
+        report_parts.append(f"  include_channels    : {', '.join(map(str, include_list))}")
+    use_list = hyper.get("use_channel_list")
+    if isinstance(use_list, str) and use_list:
+        report_parts.append(f"  use_channel_list    : {use_list}")
 
     # --- Footer ---
     report_parts.append(f"\n" + "-" * 60)
@@ -100,7 +108,41 @@ def write_summary(run_dir: Path | str, summary: Dict, task: str, engine: str) ->
     except Exception as _e:
         print(f"[WARN] Optuna index hook error: {_e}") 
 
-    # --- Part 4: NEW - Generate consolidated HTML and PDF reports ---
+    # --- Part 4: Channel Gate Aggregates & Plots (if available) ---
+    try:
+        gate_files = sorted(run_dir.glob("fold*_gate_values.json"))
+        if gate_files:
+            import numpy as np
+            gates_stack = []
+            channels = None
+            for fp in gate_files:
+                d = json.loads(fp.read_text())
+                if channels is None:
+                    channels = d.get("channels", [])
+                gates_stack.append(np.array(d.get("gates", []), dtype=float))
+            if gates_stack and channels:
+                gates_mean = np.mean(np.stack(gates_stack, 0), 0)
+                top_k = int(summary.get('hyper', {}).get('xai_top_k_channels', 10) or 10)
+                order = np.argsort(gates_mean)[::-1][:top_k]
+                top_lines = [f"{channels[i]}:{gates_mean[i]:.3f}" for i in order]
+                # Append to TXT report
+                with txt_report_path.open("a") as f:
+                    f.write("\n\n--- Channel Gate (Aggregated) ---\n")
+                    f.write("  Top channels: " + ", ".join(top_lines) + "\n")
+
+                # Optional plots: histogram and topoplot using XAI machinery would live in reporting
+                # For simplicity, save a CSV too
+                import csv
+                csv_path = run_dir / "gate_values_mean.csv"
+                with csv_path.open("w", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow(["channel", "gate_mean"])
+                    for ch, val in zip(channels, gates_mean):
+                        w.writerow([ch, float(val)])
+    except Exception as e:
+        print(f"[WARN] Gate aggregation failed: {e}")
+
+    # --- Part 5: NEW - Generate consolidated HTML and PDF reports ---
     print("\n--- Generating Consolidated Reports ---")
     try:
         create_consolidated_reports(run_dir, summary, task, engine)

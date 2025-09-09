@@ -7,6 +7,7 @@ model_name: eegnex
 # --- Data Loading ---
 dataset_dir: "data_preprocessed/all_trials_dataset (1-45hz) V2"
 use_channel_list: non_scalp # Activate exclusion of non-scalp channels
+crop_ms: [50, 250]
 n_folds: 4 # Use 4-fold CV for a fast and efficient search
 
 # --- Training (for fast search) ---

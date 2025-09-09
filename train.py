@@ -42,6 +42,11 @@ def parse_args():
     p.add_argument("--engine", required=True, choices=list(engine_registry.ENGINES.keys()))
     p.add_argument("--cfg", help="Base YAML config file (defaults to configs/<task>/base.yaml)")
     p.add_argument("--set", nargs="*", metavar="KEY=VAL", help="Override any hyper-parameter.")
+    p.add_argument(
+        '--run-xai',
+        action='store_true',
+        help='If set, run XAI analysis automatically after training completes.'
+    )
     return p.parse_args()
 
 
@@ -104,7 +109,15 @@ def main():
     # --- Run Directory Setup ---
     run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M")
     ds_tag = Path(cfg.get("dataset_dir", "unknown")).name
-    run_dir = Path("results") / "runs" / f"{run_id}_{args.task}_{args.engine}_{ds_tag}"
+    # Optional crop_ms suffix in run directory name, e.g., (crop_ms 50-200)
+    crop = cfg.get("crop_ms")
+    crop_suffix = ""
+    if isinstance(crop, (list, tuple)) and len(crop) == 2:
+        try:
+            crop_suffix = f" (crop_ms {int(crop[0])}-{int(crop[1])})"
+        except Exception:
+            crop_suffix = ""
+    run_dir = Path("results") / "runs" / f"{run_id}_{args.task}_{args.engine}_{ds_tag}{crop_suffix}"
     run_dir.mkdir(parents=True, exist_ok=True)
     cfg["run_dir"] = str(run_dir)
     
@@ -125,6 +138,30 @@ def main():
     write_summary(run_dir, summary, args.task, args.engine)
     
     print(f"--- Run finished. Mean accuracy: {summary.get('mean_acc', 0.0):.2f}% ---")
+
+    if args.run_xai:
+        print("\n--- Training complete. Starting XAI analysis... ---")
+        
+        # Prerequisite check: XAI requires saved model checkpoints.
+        if not cfg.get("save_ckpt", False):
+            print("WARNING: Cannot run XAI. 'save_ckpt' was not set to true in the config.")
+            print("--- XAI analysis skipped. ---")
+        else:
+            import subprocess
+            
+            # Use sys.executable to ensure we use the same Python environment
+            command = [
+                sys.executable, 
+                "scripts/run_xai_analysis.py",
+                "--run-dir",
+                str(run_dir)
+            ]
+            
+            try:
+                subprocess.run(command, check=True)
+                print("--- XAI analysis complete. ---")
+            except subprocess.CalledProcessError as e:
+                print(f"--- XAI analysis failed with error: {e} ---")
 
 
 if __name__ == "__main__":

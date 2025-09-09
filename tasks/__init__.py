@@ -38,8 +38,29 @@ from .numbers_pairs_46_64 import label_fn as numbers_pairs_46_64 # noqa: F401
 from .numbers_pairs_56_65 import label_fn as numbers_pairs_56_65 # noqa: F401
 from .no_cross_landing_digit import label_fn as no_cross_landing_digit # noqa: F401
 from .land1_binary_explicit import label_fn as land1_binary_explicit # noqa: F401
-from .landing_digit_1_3 import label_fn as landing_digit_1_3 # noqa: F401
-from .landing_digit_4_6 import label_fn as landing_digit_4_6 # noqa: F401
+from .landing_digit_1_3_from_any import label_fn as landing_digit_1_3_from_any # noqa: F401
+from .landing_digit_4_6_from_any import label_fn as landing_digit_4_6_from_any # noqa: F401
+from .landing_digit_1_3_within_small_and_cardinality import label_fn as landing_digit_1_3_within_small_and_cardinality # noqa: F401
+from .landing_digit_4_6_within_large_and_cardinality import label_fn as landing_digit_4_6_within_large_and_cardinality # noqa: F401
+from .landing_digit_1_3_within_small import label_fn as landing_digit_1_3_within_small # noqa: F401
+from .landing_digit_4_6_within_large import label_fn as landing_digit_4_6_within_large # noqa: F401
+from .cardinality_1_3 import label_fn as cardinality_1_3 # noqa: F401
+from .cardinality_4_6 import label_fn as cardinality_4_6 # noqa: F401
+from .all_pairs_from_any import task_1v2 as all_pairs_1v2 # noqa: F401
+from .all_pairs_from_any import task_1v3 as all_pairs_1v3 # noqa: F401
+from .all_pairs_from_any import task_1v4 as all_pairs_1v4 # noqa: F401
+from .all_pairs_from_any import task_1v5 as all_pairs_1v5 # noqa: F401
+from .all_pairs_from_any import task_1v6 as all_pairs_1v6 # noqa: F401
+from .all_pairs_from_any import task_2v3 as all_pairs_2v3 # noqa: F401
+from .all_pairs_from_any import task_2v4 as all_pairs_2v4 # noqa: F401
+from .all_pairs_from_any import task_2v5 as all_pairs_2v5 # noqa: F401
+from .all_pairs_from_any import task_2v6 as all_pairs_2v6 # noqa: F401
+from .all_pairs_from_any import task_3v4 as all_pairs_3v4 # noqa: F401
+from .all_pairs_from_any import task_3v5 as all_pairs_3v5 # noqa: F401
+from .all_pairs_from_any import task_3v6 as all_pairs_3v6 # noqa: F401
+from .all_pairs_from_any import task_4v5 as all_pairs_4v5 # noqa: F401
+from .all_pairs_from_any import task_4v6 as all_pairs_4v6 # noqa: F401
+from .all_pairs_from_any import task_5v6 as all_pairs_5v6 # noqa: F401
 
 TASKS = {
     "landing_digit": landing_digit,
@@ -72,8 +93,33 @@ TASKS = {
     "numbers_pairs_56_65": numbers_pairs_56_65,
     "no_cross_landing_digit": no_cross_landing_digit,
     "land1_binary_explicit": land1_binary_explicit,
-    "landing_digit_1_3": landing_digit_1_3,
-    "landing_digit_4_6": landing_digit_4_6,
+    "landing_digit_1_3_from_any": landing_digit_1_3_from_any,
+    "landing_digit_4_6_from_any": landing_digit_4_6_from_any,
+    "landing_digit_1_3_within_small_and_cardinality": landing_digit_1_3_within_small_and_cardinality,
+    "landing_digit_4_6_within_large_and_cardinality": landing_digit_4_6_within_large_and_cardinality,
+    "landing_digit_1_3_within_small": landing_digit_1_3_within_small,
+    "landing_digit_4_6_within_large": landing_digit_4_6_within_large,
+    # Cardinality subsets
+    "cardinality_1_3": cardinality_1_3,
+    "cardinality_4_6": cardinality_4_6,
+    # Optional hyphenated aliases for convenience
+    "cardinality_1-3": cardinality_1_3,
+    "cardinality_4-6": cardinality_4_6,
+    "all_pairs_1v2": all_pairs_1v2.label_fn,
+    "all_pairs_1v3": all_pairs_1v3.label_fn,
+    "all_pairs_1v4": all_pairs_1v4.label_fn,
+    "all_pairs_1v5": all_pairs_1v5.label_fn,
+    "all_pairs_1v6": all_pairs_1v6.label_fn,
+    "all_pairs_2v3": all_pairs_2v3.label_fn,
+    "all_pairs_2v4": all_pairs_2v4.label_fn,
+    "all_pairs_2v5": all_pairs_2v5.label_fn,
+    "all_pairs_2v6": all_pairs_2v6.label_fn,
+    "all_pairs_3v4": all_pairs_3v4.label_fn,
+    "all_pairs_3v5": all_pairs_3v5.label_fn,
+    "all_pairs_3v6": all_pairs_3v6.label_fn,
+    "all_pairs_4v5": all_pairs_4v5.label_fn,
+    "all_pairs_4v6": all_pairs_4v6.label_fn,
+    "all_pairs_5v6": all_pairs_5v6.label_fn,
 }
 
 

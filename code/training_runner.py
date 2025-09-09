@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import copy
 from typing import Callable, Dict, Any, Tuple, Optional, List
 from contextlib import nullcontext
 import random
+import json
 
 import numpy as np
 import torch
@@ -117,11 +119,8 @@ class TrainingRunner:
         num_cls = len(class_names)
         scaler = GradScaler(enabled=USE_AMP)
 
-        # Compute balanced class weights ONCE over the full data
+        # Access all labels once (used for splitting only; loss weights are per-fold)
         y_all = dataset.get_all_labels() # Assumes dataset has this helper method
-        cls_w = compute_class_weight("balanced", classes=np.arange(num_cls), y=y_all)
-        cls_w_t = torch.tensor(cls_w, dtype=torch.float32, device=DEVICE)
-        loss_fn = nn.CrossEntropyLoss(cls_w_t)
 
         log_accs = []
         overall_y_true, overall_y_pred = [], []
@@ -180,10 +179,27 @@ class TrainingRunner:
                 if seed is not None:
                     g.manual_seed(seed)
 
+                # --- Inner validation split (leakage fix) ---
+                # Create a subject-aware split inside the outer training indices.
+                inner_val_frac = float(self.cfg.get("inner_val_frac", 0.2))
+                gss_inner = GroupShuffleSplit(n_splits=1, test_size=inner_val_frac, random_state=self.cfg.get("random_state"))
+                inner_split = next(gss_inner.split(
+                    np.zeros(len(tr_idx)),
+                    y_all[tr_idx],
+                    groups[tr_idx]
+                ))
+                inner_tr_rel, inner_va_rel = inner_split
+                inner_tr_idx = tr_idx[inner_tr_rel]
+                inner_va_idx = tr_idx[inner_va_rel]
+
+                # Build two shallow copies so transforms don't leak across loaders
+                dataset_tr = copy.copy(dataset)
+                dataset_eval = copy.copy(dataset)
+
                 aug = aug_builder(self.cfg, dataset)
-                dataset.set_transform(aug) # Assumes dataset has a method to set transform
+                dataset_tr.set_transform(aug) # Train-time augmentation only
                 tr_ld = DataLoader(
-                    Subset(dataset, tr_idx), 
+                    Subset(dataset_tr, inner_tr_idx), 
                     batch_size=self.cfg["batch_size"], 
                     shuffle=True, 
                     drop_last=False, 
@@ -192,19 +208,41 @@ class TrainingRunner:
                     worker_init_fn=seed_worker if seed is not None else None,
                     generator=g if seed is not None else None
                 )
-                
-                dataset.set_transform(None) # No augmentation for validation
-                va_ld = DataLoader(Subset(dataset, va_idx), batch_size=self.cfg["batch_size"], shuffle=False, num_workers=num_workers, pin_memory=True)
+
+                # Inner validation loader (no augmentation)
+                dataset_eval.set_transform(None)
+                va_ld = DataLoader(
+                    Subset(dataset_eval, inner_va_idx),
+                    batch_size=self.cfg["batch_size"],
+                    shuffle=False,
+                    num_workers=num_workers,
+                    pin_memory=True
+                )
+
+                # Outer test loader (never used for early stopping/scheduling)
+                te_ld = DataLoader(
+                    Subset(dataset_eval, va_idx),
+                    batch_size=self.cfg["batch_size"],
+                    shuffle=False,
+                    num_workers=num_workers,
+                    pin_memory=True
+                )
 
                 model = model_builder(self.cfg, num_cls).to(DEVICE)
                 opt, sched = self.get_optimizer(model)
-                
+
+                # --- Per-fold class weights computed from INNER TRAIN ONLY (leakage fix) ---
+                y_inner_train = y_all[inner_tr_idx]
+                cls_w = compute_class_weight("balanced", classes=np.arange(num_cls), y=y_inner_train)
+                cls_w_t = torch.tensor(cls_w, dtype=torch.float32, device=DEVICE)
+                loss_fn = nn.CrossEntropyLoss(cls_w_t)
+
                 best_val_loss = float("inf")
                 best_acc = 0.0
                 patience = 0
                 
                 tr_history, val_history, acc_history = [], [], []
-                best_y_true_fold, best_y_pred_fold = [], []
+                best_state_dict = None
 
                 for epoch in range(1, self.cfg["epochs"] + 1):
                     # --- Train Step ---
@@ -226,6 +264,10 @@ class TrainingRunner:
                             else:
                                 out = model(input_adapted)
                             loss = loss_fn(out.float(), yb)
+                        # Add L1 penalty on channel gates if enabled
+                        l1_lambda = float(self.cfg.get("gate_l1_lambda", 0.0) or 0.0)
+                        if l1_lambda > 0.0 and hasattr(model, "gate_l1_penalty"):
+                            loss = loss + l1_lambda * model.gate_l1_penalty()
                         
                         if USE_AMP:
                             scaler.scale(loss).backward()
@@ -240,10 +282,9 @@ class TrainingRunner:
                     train_loss = train_loss_total / len(tr_ld)
                     tr_history.append(train_loss)
 
-                    # --- Validation Step ---
+                    # --- Inner Validation Step (used for early stopping & scheduler) ---
                     model.eval()
                     val_loss_total, correct, total = 0.0, 0, 0
-                    y_true_fold, y_pred_fold = [], []
                     with torch.no_grad():
                         for xb, yb in va_ld:
                             yb_cpu = yb
@@ -267,9 +308,6 @@ class TrainingRunner:
                             preds = out.argmax(1).cpu()
                             correct += (preds == yb_cpu).sum().item()
                             total += yb_cpu.size(0)
-                            
-                            y_true_fold.extend(yb_cpu.tolist())
-                            y_pred_fold.extend(preds.tolist())
 
                     val_loss = val_loss_total / len(va_ld)
                     val_acc = 100 * correct / total
@@ -289,10 +327,8 @@ class TrainingRunner:
 
                     if val_loss < best_val_loss:
                         best_val_loss = val_loss
-                        best_acc = val_acc
                         patience = 0
-                        best_y_true_fold = y_true_fold
-                        best_y_pred_fold = y_pred_fold
+                        best_state_dict = copy.deepcopy(model.state_dict())
                         if self.run_dir and self.cfg.get("save_ckpt", False):
                             torch.save(model.state_dict(), self.run_dir / f"fold_{fold+1:02d}_best.ckpt")
                     else:
@@ -302,14 +338,65 @@ class TrainingRunner:
                         print(f"Early stopping at epoch {epoch}")
                         break
                 
+                # --- Test Evaluation (outer fold) using best inner-val checkpoint ---
+                if best_state_dict is not None:
+                    model.load_state_dict(best_state_dict)
+                model.eval()
+                y_true_fold, y_pred_fold = [], []
+                correct_test, total_test = 0, 0
+                with torch.no_grad():
+                    for xb, yb in te_ld:
+                        yb_cpu = yb
+                        if isinstance(xb, (list, tuple)):
+                            xb = [x.to(DEVICE) for x in xb]
+                        else:
+                            xb = xb.to(DEVICE)
+                        yb_gpu = yb_cpu.to(DEVICE)
+
+                        # Apply the same input adapter used during training/validation
+                        input_adapted = input_adapter(xb) if input_adapter else xb
+
+                        with autocast(enabled=USE_AMP):
+                            if isinstance(input_adapted, (list, tuple)):
+                                out = model(*input_adapted)
+                            else:
+                                out = model(input_adapted)
+
+                        preds = out.argmax(1).cpu()
+                        correct_test += (preds == yb_cpu).sum().item()
+                        total_test += yb_cpu.size(0)
+                        y_true_fold.extend(yb_cpu.tolist())
+                        y_pred_fold.extend(preds.tolist())
+
+                best_acc = 100 * correct_test / total_test
                 log_accs.append(best_acc)
-                overall_y_true.extend(best_y_true_fold)
-                overall_y_pred.extend(best_y_pred_fold)
+                overall_y_true.extend(y_true_fold)
+                overall_y_pred.extend(y_pred_fold)
+
+                # --- Save per-fold Channel Gate values (if present) ---
+                try:
+                    if hasattr(model, "get_gate_values") and hasattr(dataset, "channel_names"):
+                        gates = model.get_gate_values().cpu().numpy().tolist()
+                        ch_names = dataset.channel_names
+                        # Compute simple sparsity metrics
+                        gates_np = np.array(gates)
+                        l1_val = float(np.sum(gates_np))
+                        # Fraction below small threshold (e.g., <0.1)
+                        sparsity_frac = float((gates_np < 0.1).mean())
+                        payload = {
+                            "channels": ch_names,
+                            "gates": gates,
+                            "l1_sum": l1_val,
+                            "sparsity_frac_lt_0_1": sparsity_frac,
+                        }
+                        (self.run_dir / f"fold{fold+1}_gate_values.json").write_text(json.dumps(payload, indent=2))
+                except Exception as _e:
+                    print(f"[WARN] Could not save gate values for fold {fold+1}: {_e}")
 
                 # --- New: Generate and store per-class metrics for this fold ---
                 report = classification_report(
-                    best_y_true_fold,
-                    best_y_pred_fold,
+                    y_true_fold,
+                    y_pred_fold,
                     labels=list(range(num_cls)),
                     target_names=class_names,
                     output_dict=True,
@@ -325,7 +412,7 @@ class TrainingRunner:
                     sys.stdout.flush()
                     fold_title = f"{self.cfg.get('task','').replace('_',' ')} · F{fold+1} · Acc {best_acc:.1f}%"
                     plot_confusion(
-                        best_y_true_fold, best_y_pred_fold, class_names,
+                        y_true_fold, y_pred_fold, class_names,
                         self.run_dir / f"fold{fold+1}_confusion.png", title=fold_title
                     )
                     plot_curves(
@@ -337,8 +424,15 @@ class TrainingRunner:
         # --- Overall Results ---
         mean_acc = np.mean(log_accs)
         std_acc = np.std(log_accs)
-        if self.run_dir and overall_y_true:
+
+        # NEW: Compute class-aggregated F1 metrics once (if we have predictions)
+        macro_f1 = 0.0
+        weighted_f1 = 0.0
+        if overall_y_true:
             macro_f1 = f1_score(overall_y_true, overall_y_pred, average="macro") * 100
+            weighted_f1 = f1_score(overall_y_true, overall_y_pred, average="weighted") * 100
+
+        if self.run_dir and overall_y_true:
             plot_confusion(
                 overall_y_true,
                 overall_y_pred,
@@ -350,6 +444,8 @@ class TrainingRunner:
         return {
             "mean_acc": float(mean_acc), 
             "std_acc": float(std_acc), 
+            "macro_f1": float(macro_f1),
+            "weighted_f1": float(weighted_f1),
             "fold_accuracies": log_accs,
             "per_fold_class_metrics": per_fold_metrics,
             "fold_splits": fold_split_info

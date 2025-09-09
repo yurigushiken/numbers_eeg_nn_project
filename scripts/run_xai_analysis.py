@@ -1,4 +1,5 @@
 import argparse
+import re
 import json
 import numpy as np
 from pathlib import Path
@@ -12,6 +13,7 @@ from mne.viz.topomap import _prepare_topomap_plot
 import yaml # <-- Import yaml
 from mne.transforms import apply_trans
 from mne.viz.topomap import _get_pos_outlines
+from scipy.signal import find_peaks # <-- ADD THIS IMPORT
 
 # Add project root to path to allow for robust module imports
 proj_root = Path(__file__).resolve().parent.parent
@@ -33,10 +35,22 @@ def create_xai_report(
     grand_average_plot_path: Path,
     per_fold_plot_paths: List[Path],
     top_channels: List[str],
-    peak_time_window: List[float]
+    peak_analyses: List[dict] # <-- MODIFIED: Was peak_time_window
 ):
     """Generates a consolidated HTML/PDF report for XAI results."""
-    report_title = f"XAI Report: {summary_data['hyper']['task']} ({summary_data['hyper']['model_name']})"
+    task_name_for_title = re.sub(r"(?<=\d)_(?=\d)", "-", summary_data['hyper']['task'])
+    report_title = f"XAI Report: {task_name_for_title} ({summary_data['hyper']['model_name']})"
+    # NEW: Subtitle from task module if available
+    subtitle_html = ""
+    try:
+        import importlib
+        task_name = summary_data['hyper']['task']
+        task_module = importlib.import_module(f"tasks.{task_name}")
+        conds = getattr(task_module, "CONDITIONS", None)
+        if isinstance(conds, (list, tuple)) and len(conds) > 0:
+            subtitle_html = f"<div class=\"subtitle\"><pre><strong>Conditions: {str(list(conds))}</strong></pre></div>"
+    except Exception:
+        subtitle_html = ""
     run_id = summary_data['run_id']
     
     # Build a text summary of the findings
@@ -46,11 +60,55 @@ def create_xai_report(
         f"Task: {summary_data['hyper']['task']}\n"
         f"---------------------------------------\n\n"
         f"Key Findings (Averaged over {len(per_fold_plot_paths)} folds):\n"
-        f" - Top 10 Most Important Channels:\n"
-        f"     1. {top_channels[0]:<5} 2. {top_channels[1]:<5} 3. {top_channels[2]:<5} 4. {top_channels[3]:<5} 5. {top_channels[4]:<5}\n"
-        f"     6. {top_channels[5]:<5} 7. {top_channels[6]:<5} 8. {top_channels[7]:<5} 9. {top_channels[8]:<5} 10. {top_channels[9]:<5}\n\n"
-        f" - Peak Importance Time Window: {peak_time_window[0]:.0f}ms - {peak_time_window[1]:.0f}ms\n"
     )
+    # NEW: Dynamically format Top-K list based on xai_top_k_channels
+    top_k = int(summary_data.get('hyper', {}).get('xai_top_k_channels', 10) or 10)
+    summary_text += f" - Top {top_k} Most Important Channels (Overall):\n"
+    rows = []
+    for i, ch in enumerate(top_channels[:top_k], start=1):
+        rows.append(f"{i:>2}. {ch:<5}")
+    lines = []
+    for i in range(0, len(rows), 2):
+        if i + 1 < len(rows):
+            lines.append(f"{rows[i]}  {rows[i+1]}")
+        else:
+            lines.append(rows[i])
+    # Avoid backslashes inside f-string expression blocks by joining outside braces
+    summary_text += (chr(10)).join(["    " + ln for ln in lines]) + chr(10)
+
+    # Prepare training TXT report (if present) and prepend crop_ms banner
+    # Try to locate the training TXT report; fall back to glob if engine is not known
+    training_txt_content = None
+    try:
+        # Prefer exact name if we know task/engine; otherwise pick the first report_*.txt
+        candidate = None
+        task_name = summary_data.get('hyper', {}).get('task')
+        engine_name = summary_data.get('hyper', {}).get('engine')
+        if task_name and engine_name:
+            candidate = run_dir / f"report_{task_name}_{engine_name}.txt"
+        if not candidate or not candidate.exists():
+            matches = sorted(run_dir.glob("report_*.txt"))
+            if matches:
+                candidate = matches[0]
+        if candidate and candidate.exists():
+            training_txt_content = candidate.read_text(encoding="utf-8")
+    except Exception:
+        training_txt_content = None
+
+    crop = summary_data.get('hyper', {}).get('crop_ms')
+    crop_banner = None
+    if isinstance(crop, (list, tuple)) and len(crop) == 2:
+        crop_banner = f"Time Window (crop_ms): {int(crop[0])}-{int(crop[1])} ms\n\n"
+        if training_txt_content:
+            training_txt_content = crop_banner + training_txt_content
+
+    # NEW: Include-channels banner mirroring the crop banner
+    include_banner = None
+    incl = summary_data.get('hyper', {}).get('include_channels')
+    if isinstance(incl, (list, tuple)) and len(incl) > 0:
+        include_banner = f"Included Channels ({len(incl)}): {', '.join(map(str, incl))}\n\n"
+        if training_txt_content:
+            training_txt_content = include_banner + training_txt_content
 
     # Re-use the reporting utility, but with a new HTML structure
     html_output_path = run_dir / "consolidated_xai_report.html"
@@ -61,6 +119,16 @@ def create_xai_report(
         with open(img_path, "rb") as f:
             encoded = base64.b64encode(f.read()).decode()
         return f"data:image/png;base64,{encoded}"
+
+    # Optional block for training summary
+    training_summary_block = ""
+    if training_txt_content:
+        training_summary_block = f"""
+            <div class=\"training-summary\">
+                <h2>Summary Report</h2>
+                <pre>{training_txt_content}</pre>
+            </div>
+        """
 
     html_content = f"""
     <!DOCTYPE html>
@@ -73,9 +141,14 @@ def create_xai_report(
             .container {{ max-width: 1200px; margin: auto; }}
             h1, h2 {{ text-align: center; }}
             .summary-text pre {{ background-color: #f4f4f4; padding: 1em; border-radius: 5px; font-size: 1.1em; }}
+            .training-summary pre {{ background-color: #f4f4f4; padding: 1em; border: 1px solid #ddd; margin: 1em 0; font-family: monospace; }}
             .findings-container {{ display: flex; gap: 2em; align-items: center; justify-content: center; margin-bottom: 2em; }}
             .grand-average-plot {{ text-align: center; margin-bottom: 2em; }}
             .grand-average-plot img {{ max-width: 80%; border: 1px solid #ccc; }}
+            .peak-analysis-section {{ margin-top: 3em; }}
+            .peak-container {{ display: flex; gap: 2em; align-items: flex-start; justify-content: center; margin-bottom: 2em; border-top: 2px solid #eee; padding-top: 2em;}}
+            .peak-summary pre {{ background-color: #f0f0f0; padding: 1em; border-radius: 5px; font-size: 1em; }}
+            .peak-topoplot img {{ max-width: 100%; border: 1px solid #ccc; }}
             .plots-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1em; }}
             .plot-pair img {{ max-width: 100%; border: 1px solid #ddd; }}
             .plot-pair p {{ text-align: center; font-weight: bold; margin-top: 0.5em; }}
@@ -84,13 +157,17 @@ def create_xai_report(
     <body>
         <div class="container">
             <h1>{report_title}</h1>
+            {subtitle_html}
+            {f'<div class="crop-banner"><pre><strong>Time Window (crop_ms): {int(crop[0])}-{int(crop[1])} ms</strong></pre></div>' if crop_banner else ''}
+            {f'<div class="include-banner"><pre><strong>Included Channels ({len(incl)}): {", ".join(map(str, incl))}</strong></pre></div>' if include_banner else ''}
+            {training_summary_block}
             <div class="findings-container">
                 <div class="summary-text">
                     <h2>Key Findings</h2>
                     <pre>{summary_text}</pre>
                 </div>
                 <div class="topoplot">
-                    <h2>Channel Importance Topoplot</h2>
+                    <h2>Overall Channel Importance</h2>
                     <img src="{embed_image(run_dir / 'xai_analysis' / 'grand_average_xai_topoplot.png')}" alt="Topoplot">
                 </div>
             </div>
@@ -98,6 +175,26 @@ def create_xai_report(
                 <h2>Grand Average Attribution Heatmap</h2>
                 <img src="{embed_image(grand_average_plot_path)}" alt="Grand Average Heatmap">
             </div>
+
+            <!-- NEW: Peak Analysis Section -->
+            <div class="peak-analysis-section">
+                <h2>Peak Temporal Analysis</h2>
+                {''.join(f'''
+                <div class="peak-container">
+                    <div class="peak-summary">
+                        <h3>Peak {peak["peak_num"]}: {peak["time_window_ms"][0]:.0f} - {peak["time_window_ms"][1]:.0f} ms</h3>
+                        <pre>
+<strong>Top {top_k} Channels (in window):</strong>
+{''.join([f"{i+1}. {name:<5}" + ("  " if (i % 2 == 0) else chr(10)) for i, name in enumerate(peak["top_channels"][:top_k])])}
+                        </pre>
+                    </div>
+                    <div class="peak-topoplot">
+                        <img src="{embed_image(peak["topoplot_path"])}" alt="Peak {peak["peak_num"]} Topoplot">
+                    </div>
+                </div>
+                ''' for peak in peak_analyses)}
+            </div>
+
             <div class="plots-section">
                 <h2>Per-Fold Attribution Heatmaps</h2>
                 <div class="plots-grid">
@@ -171,8 +268,8 @@ def main():
     # --- NEW (IA Recommended): Get final channel names and sfreq from the dataset ---
     ch_names = full_dataset.channel_names
     sfreq = full_dataset.sfreq
-    # --- CORRECTED: Create the actual array of time points ---
-    times_ms = np.linspace(0, (full_dataset.time_points - 1) / sfreq * 1000, full_dataset.time_points)
+    # --- CORRECTED: Use dataset as single source of truth for time axis ---
+    times_ms = full_dataset.times_ms
 
     # --- Build a clean plotting Info object from scratch ---
     montage = mne.channels.read_custom_montage(proj_root / "net/AdultAverageNet128_v1.sfp")
@@ -257,39 +354,92 @@ def main():
         )
 
     # 3. Analyze for Key Findings (metadata is already loaded)
-    # Top 10 Channels
-    mean_ch_attr = np.mean(np.abs(grand_average), axis=1)
-    top_ch_indices = np.argsort(mean_ch_attr)[::-1][:10]
-    top_ch_names = [ch_names[i] for i in top_ch_indices]
+    
+    # --- GLOBAL ANALYSIS (OVER ENTIRE TIME WINDOW) ---
+    mean_ch_attr_global = np.mean(np.abs(grand_average), axis=1)
+    top_k = int(cfg.get('xai_top_k_channels', 10) or 10)
+    top_ch_indices_global = np.argsort(mean_ch_attr_global)[::-1][:top_k]
+    top_ch_names_global = [ch_names[i] for i in top_ch_indices_global]
 
-    # Peak Time Window
+    # --- PEAK TEMPORAL ANALYSIS ---
+    peak_analyses = []
     mean_time_attr = np.mean(np.abs(grand_average), axis=0)
-    peak_time_idx = np.argmax(mean_time_attr)
-    window_size = 50 # ms
-    peak_time_ms = times_ms[peak_time_idx]
-    time_window = [peak_time_ms - window_size/2, peak_time_ms + window_size/2]
+    
+    # Find peaks, requiring them to be at least 100ms apart
+    distance_samples = int(sfreq * 0.1) 
+    peaks, _ = find_peaks(mean_time_attr, distance=distance_samples)
+    
+    # Sort peaks by their importance (height) and take the top 2
+    peak_heights = mean_time_attr[peaks]
+    top_peak_indices_sorted = np.argsort(peak_heights)[::-1][:2]
+    top_peaks = peaks[top_peak_indices_sorted]
 
-    # 4. Save Grand Average Artifacts
+    for i, peak_idx in enumerate(top_peaks):
+        # 1. Define 50ms window around the peak
+        window_size_ms = 50
+        peak_time_ms = times_ms[peak_idx]
+        time_window = [peak_time_ms - window_size_ms / 2, peak_time_ms + window_size_ms / 2]
+        
+        start_idx = np.argmin(np.abs(times_ms - time_window[0]))
+        end_idx = np.argmin(np.abs(times_ms - time_window[1]))
+
+        # 2. Slice the grand_average data to this window
+        windowed_attributions = grand_average[:, start_idx:end_idx+1]
+        
+        # 3. Calculate channel importance and top-K channels for this window
+        mean_ch_attr_window = np.mean(np.abs(windowed_attributions), axis=1)
+        top_ch_indices_window = np.argsort(mean_ch_attr_window)[::-1][:top_k]
+        top_ch_names_window = [ch_names[i] for i in top_ch_indices_window]
+        
+        # 4. Generate and save a topoplot for this window
+        topo_path_window = xai_output_dir / f"peak_{i+1}_topoplot.png"
+        fig, ax = plt.subplots(figsize=(6, 6))
+        mask = np.zeros(len(ch_names), dtype='bool')
+        mask[top_ch_indices_window] = True
+        plot_topomap(mean_ch_attr_window, info_for_plot, axes=ax, show=False, cmap='inferno',
+                     mask=mask, mask_params=dict(marker='o', markerfacecolor='w',
+                                                 markeredgecolor='k', markersize=8))
+        ax.set_title(f'Channel Importance: {time_window[0]:.0f}-{time_window[1]:.0f} ms', fontsize=16)
+        
+        # Add labels for top 10 channels in this window
+        pos, _ = _get_pos_outlines(info_for_plot, picks=None, sphere=None)
+        for ch_idx in top_ch_indices_window:
+            ax.text(pos[ch_idx, 0], pos[ch_idx, 1], ch_names[ch_idx], 
+                    ha='center', va='center', fontsize=7,
+                    bbox=dict(facecolor='white', alpha=0.5, edgecolor='none', boxstyle='round,pad=0.1'))
+        
+        fig.savefig(topo_path_window, bbox_inches='tight', dpi=150)
+        plt.close(fig)
+
+        # 5. Store results for the report
+        peak_analyses.append({
+            "peak_num": i + 1,
+            "time_window_ms": time_window,
+            "top_channels": top_ch_names_window,
+            "topoplot_path": topo_path_window
+        })
+
+    # 4. Save Grand Average Artifacts (using GLOBAL data)
     # The info_for_plot is now correctly created above.
 
-    # Topoplot
+    # Topoplot (Global)
     topo_png_path = xai_output_dir / "grand_average_xai_topoplot.png"
     fig, ax = plt.subplots(figsize=(6, 6))
     
-    # Create a mask to highlight the top 10 channels
+    # Create a mask to highlight the top-K channels (Global)
     mask = np.zeros(len(ch_names), dtype='bool')
-    mask[top_ch_indices] = True
+    mask[top_ch_indices_global] = True
 
-    plot_topomap(mean_ch_attr, info_for_plot, axes=ax, show=False, cmap='inferno',
+    plot_topomap(mean_ch_attr_global, info_for_plot, axes=ax, show=False, cmap='inferno',
                  mask=mask, mask_params=dict(marker='o', markerfacecolor='w',
                                              markeredgecolor='k', markersize=8))
-    ax.set_title('Mean Channel Importance', fontsize=16)
+    ax.set_title('Mean Channel Importance (Overall)', fontsize=16)
 
-    # --- NEW (Robust): Add labels for top 10 channels ---
+    # --- NEW (Robust): Add labels for top-K channels ---
     pos, outlines = _get_pos_outlines(info_for_plot, picks=None, sphere=None)
 
-    # Draw a text label for each of the top 10 channels
-    for i in top_ch_indices:
+    # Draw a text label for each of the top-K channels
+    for i in top_ch_indices_global:
         ax.text(pos[i, 0], pos[i, 1], ch_names[i], 
                 ha='center', va='center', fontsize=7,
                 bbox=dict(facecolor='white', alpha=0.5, edgecolor='none', boxstyle='round,pad=0.1'))
@@ -298,7 +448,7 @@ def main():
     fig.savefig(topo_png_path, bbox_inches='tight', dpi=150)
     plt.close(fig)
 
-    # Heatmap Plot
+    # Heatmap Plot (This remains the full grand average heatmap)
     ga_png_path = xai_output_dir / "grand_average_xai_heatmap.png"
     fig, ax = plt.subplots(figsize=(12, 8))
     im = ax.imshow(grand_average, cmap='inferno', aspect='auto', interpolation='nearest')
@@ -327,8 +477,11 @@ def main():
         "xai_method": "Integrated Gradients",
         "aggregation": "Grand Average",
         "num_folds_averaged": len(all_attributions),
-        "top_10_channels": top_ch_names,
-        "peak_time_window_ms": time_window,
+        "top_10_channels_overall": top_ch_names_global,
+        "peak_analyses": [
+            {k: v if not isinstance(v, Path) else str(v) for k, v in p.items()} 
+            for p in peak_analyses
+        ],
         "attribution_data_file": ga_npy_path.name,
         "heatmap_image_file": ga_png_path.name,
         "topoplot_image_file": topo_png_path.name,
@@ -343,8 +496,8 @@ def main():
         summary_data=summary_data,
         grand_average_plot_path=ga_png_path,
         per_fold_plot_paths=per_fold_plots,
-        top_channels=top_ch_names,
-        peak_time_window=time_window
+        top_channels=top_ch_names_global,
+        peak_analyses=peak_analyses
     )
     
     print("\n--- Grand Average Summary Complete ---")

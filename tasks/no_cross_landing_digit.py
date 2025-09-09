@@ -9,7 +9,7 @@ large-number group {4, 5, 6}.
 import numpy as np
 import pandas as pd
 
-__all__ = ["label_fn"]
+__all__ = ["label_fn", "CONDITIONS"]
 
 def label_fn(meta: pd.DataFrame):
     """
@@ -19,7 +19,7 @@ def label_fn(meta: pd.DataFrame):
     # Explicitly define all valid "no-crossover" conditions.
     # This includes trials within the small-number group {1,2,3} and
     # trials within the large-number group {4,5,6}, including cardinality.
-    valid_conditions = [
+    CONDITIONS = [
         # Small group (prime and landing in {1,2,3})
         11, 12, 13,
         21, 22, 23,
@@ -29,6 +29,7 @@ def label_fn(meta: pd.DataFrame):
         54, 55, 56,
         64, 65, 66
     ]
+    valid_conditions = CONDITIONS
 
     cond_int = meta["Condition"].astype(int)
 
@@ -39,4 +40,5 @@ def label_fn(meta: pd.DataFrame):
     # Others become NaN and are ignored by the training pipeline.
     valid_landing_digits = landing_digit.where(cond_int.isin(valid_conditions), other=np.nan)
 
-    return valid_landing_digits.astype(str)
+    # Conditionally convert to string, preserving NaNs.
+    return valid_landing_digits.apply(lambda x: str(int(x)) if pd.notna(x) else np.nan)

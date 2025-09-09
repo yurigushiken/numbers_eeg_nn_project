@@ -48,8 +48,16 @@ results/runs/<timestamp>_<task>_<engine>/
     report_*.txt        # human-readable
     fold1_confusion.png fold1_curves.png …
     overall_confusion.png
+    fold*_gate_values.json  # if Channel Gate is enabled: per-fold channel gates/L1/sparsity
+    gate_values_mean.csv    # aggregated channel gates across folds
 results/runs_index.csv  # global catalogue auto-expanded
 ```
+
+The consolidated reports now include:
+- Macro F1-Score: class-balanced performance across classes
+- Weighted F1-Score: weighted by class frequencies
+- Conditions subtitle: when the task exposes a `CONDITIONS` list (e.g., `[44, 55, 66]`)
+- Included channels banner: when `include_channels` is set in the YAML
 
 ---
 
@@ -197,6 +205,18 @@ Order of precedence for hyper-parameters
    python train.py --task <new_task> --engine cnn --set epochs=2 max_folds=1
    ```
 
+### 3.3 Leakage-safe training behavior
+
+For every outer fold, we create an inner, subject-aware split from the training subjects:
+- Early stopping and the LR scheduler are driven by the inner validation loss only.
+- The outer test fold is evaluated once at the end using the best inner‑val checkpoint.
+- Class weights are computed from inner‑train labels only.
+
+Optional knob (defaults to 0.2):
+```yaml
+inner_val_frac: 0.2
+```
+
 ---
 
 ## 4 · Configuration Files
@@ -211,13 +231,22 @@ Each task folder can hold multiple presets:
 Example `configs/landing_digit/multi_scale_cnn_base.yaml` excerpt:
 
 ```yaml
-dataset_dir: data_preprocessed/acc_1_dataset (30hz) V2 # Or (45hz) V2, etc.
-model_name: multi_scale_cnn
-kernel_sizes: [7, 11, 15, 19]
-batch_size: 64
-lr: 1e-4
+model_name: eegnex
+dataset_dir: "data_preprocessed/all_trials_dataset (1-45hz) V2"
+
+# --- Data & Preprocessing ---
+use_channel_list: non_scalp
+include_channels: [E76, E59, E83]
+crop_ms: [50, 200]
+
+# --- XAI ---
+xai_top_k_channels: 20
+
+# --- Training ---
 epochs: 100
-early_stop: 15
+early_stop: 20
+batch_size: 16
+lr: 0.00078
 ```
 
 ### **4.1 · Available Tasks**
@@ -227,6 +256,8 @@ early_stop: 15
 | `landing_digit` | Predict the final stimulus digit (1–6). | 6 |
 | `no_cross_landing_digit` | Predict the final stimulus digit (1–6), but only for trials where prime and stimulus are both small {1,2,3} or both large {4,5,6}. | 6 |
 | `cardinality` | Binary: Was it a "no-change" trial (e.g., 11, 22)? | 2 |
+| `cardinality_1_3` | 3‑class: No‑change trials 11/22/33 (subset 1–3). | 3 |
+| `cardinality_4_6` | 3‑class: No‑change trials 44/55/66 (subset 4–6). | 3 |
 | `change_no_change` | Binary: Was there any change between prime and stimulus? | 2 |
 | `direction_binary` | Binary: Was the change direction positive (e.g., 24) or negative (e.g., 42)? Ignores no-change trials. | 2 |
 | `land1_binary` | Binary: Did the trial land on the digit '1'? | 2 |
@@ -275,6 +306,28 @@ use_channel_list: non_scalp
 
 When the training starts, the system prints a confirmation message indicating exactly which channels have been removed for that run.
 
+#### **Explicit Channel Inclusion (Keep-Only)**
+
+To restrict training to a specific subset of channels (e.g., those identified by XAI), provide `include_channels`. All other channels are discarded, and the order you list is preserved.
+
+```yaml
+include_channels:
+  - E55
+  - E39
+  - E40
+  - E31
+  - E87
+  - Cz
+  - E115
+  - E53
+  - E78
+  - E100
+```
+
+Notes:
+- Exclusion via `use_channel_list` is applied first, then inclusion.
+- If `include_channels` is empty or omitted, all remaining channels are used.
+
 #### **Configurable Time-Window Cropping**
 
 To focus the model on a specific time window of the EEG epoch (e.g., to isolate an ERP), add the `crop_ms` key to your configuration. This truncates each trial's data before it is passed to the model.
@@ -298,6 +351,39 @@ Notes:
 - Times are in milliseconds relative to stimulus onset; negative values indicate the pre-stimulus baseline.
 - All plots and XAI outputs use the dataset's canonical time axis (`times_ms`), which automatically reflects `crop_ms` when set.
 
+### **4.4 · Augmentations (train‑only)**
+
+Raw‑EEG augmentations are applied to the training loader only; validation and test are never augmented. The following knobs are available in YAML (typical ranges shown):
+```yaml
+mixup_alpha: 0.0–0.5
+shift_p: 0.0–0.5
+shift_max_frac: 0.01–0.08
+scale_p: 0.0–0.3
+scale_min: 0.9
+scale_max: 1.1–1.2
+noise_p: 0.0–0.5
+noise_std: 0.01–0.05
+time_mask_p: 0.2–0.5
+time_mask_frac: 0.05–0.3
+chan_mask_p: 0.2–0.7
+chan_mask_ratio: 0.05
+```
+
+### **4.5 · Channel Gate regularization (optional)**
+
+Enable a learnable, non‑negative per‑channel gate vector with L1 regularization for parsimony. This lets the model learn which electrodes matter without manual pre‑selection.
+
+```yaml
+channel_gate: true       # enable/disable
+gate_init: 1.0           # exact via inverse‑softplus init
+gate_l1_lambda: 0.0002   # tune 1e‑5–5e‑4
+```
+
+If enabled, each run exports:
+- `foldNN_gate_values.json` per fold (channels, gates, L1 sum, sparsity fraction)
+- `gate_values_mean.csv` aggregated across folds
+The TXT report includes a “Channel Gate (Aggregated)” Top‑K section.
+
 ---
 
 ## 5 · Hyper-parameter Optimisation (Optuna)
@@ -316,6 +402,16 @@ python scripts/optuna_tune.py `
 
 The tuner samples parameters, calls the chosen engine **in-process**, records
 the `mean_acc`, and appends each trial to `results/runs_index.csv`.
+
+Notes:
+- The tuner now merges `configs/common.yaml` + the base YAML + trial overrides (same precedence as `train.py`). This allows `use_channel_list: non_scalp` to work during studies.
+- You can also include a Channel Gate term in your search space, e.g.:
+```yaml
+gate_l1_lambda:
+  method: log_uniform
+  low: 1.0e-5
+  high: 5.0e-4
+```
 
  
 
@@ -489,6 +585,18 @@ The script will create a new subfolder named `xai_analysis/` inside your run dir
     *   Grand average and per-fold attribution heatmaps.
 
 This analysis is invaluable for interpreting the model's behavior and linking its predictions back to neurophysiological patterns.
+
+### 11.4 Customizing the XAI Report
+
+#### Top-K Channels
+
+Control the number of “Top” channels shown in the report with `xai_top_k_channels`:
+
+```yaml
+xai_top_k_channels: 30
+```
+
+This updates the summary text, the channels highlighted on the topoplot, and per-peak analyses.
 
 ---
 

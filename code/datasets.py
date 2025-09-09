@@ -68,6 +68,14 @@ class RawEEGDataset(BaseDataset):
             epochs_list.append(ep)
         
         all_ep = mne.concatenate_epochs(epochs_list)
+
+        # --- NEW: Optional time-cropping based on config ---
+        crop_ms = self.cfg.get("crop_ms")
+        if crop_ms:
+            tmin, tmax = crop_ms[0] / 1000.0, crop_ms[1] / 1000.0
+            print(f"INFO: Applying time cropping from {crop_ms[0]}ms to {crop_ms[1]}ms ({tmin:.3f}s to {tmax:.3f}s)")
+            all_ep.crop(tmin=tmin, tmax=tmax, include_tmax=True)
+
         all_ep.metadata["__y"] = self.label_fn(all_ep.metadata)
         all_ep = all_ep[~all_ep.metadata["__y"].isna()]
 
@@ -86,6 +94,24 @@ class RawEEGDataset(BaseDataset):
                     print(f"INFO: Remaining channels: {len(all_ep.ch_names)}")
             else:
                 print(f"WARNING: Channel list '{list_name_to_use}' not found in config. Using all channels.")
+
+        # --- NEW: Explicit inclusion (keep-only) list ---
+        # If provided, keep only the channels listed in 'include_channels', in the order specified.
+        include_list = self.cfg.get("include_channels")
+        if include_list:
+            # Preserve requested order; warn on missing channels
+            include_present = [ch for ch in include_list if ch in all_ep.ch_names]
+            missing = [ch for ch in include_list if ch not in all_ep.ch_names]
+            if missing:
+                print(f"WARNING: The following requested include_channels are not present and will be ignored: {missing}")
+            # Drop everything not in include_present
+            to_drop = [ch for ch in all_ep.ch_names if ch not in include_present]
+            if to_drop:
+                all_ep.drop_channels(to_drop)
+            # Reorder to match the include list order
+            if include_present:
+                all_ep.reorder_channels(include_present)
+            print(f"INFO: Applied include_channels. Kept {len(all_ep.ch_names)} channels: {all_ep.ch_names}")
 
         # --- Preprocessing ---
         X = all_ep.get_data(copy=False).astype(np.float32) * 1e6 # V to uV
@@ -162,6 +188,16 @@ class RawEEGDataset(BaseDataset):
                 if ch_to_drop:
                     all_ep.drop_channels(ch_to_drop)
         
+        # Mirror explicit inclusion logic here so downstream uses the same final ch_names
+        include_list = self.cfg.get("include_channels")
+        if include_list:
+            include_present = [ch for ch in include_list if ch in all_ep.ch_names]
+            to_drop = [ch for ch in all_ep.ch_names if ch not in include_present]
+            if to_drop:
+                all_ep.drop_channels(to_drop)
+            if include_present:
+                all_ep.reorder_channels(include_present)
+        
         result = all_ep.ch_names
         _CACHE[cache_key] = result
         return result
@@ -177,6 +213,36 @@ class RawEEGDataset(BaseDataset):
         result = info['sfreq']
         _CACHE[cache_key] = result
         return result
+
+    @property
+    def times_ms(self) -> np.ndarray:
+        """
+        Canonical time vector in milliseconds for this dataset instance.
+        Respects crop_ms if provided and matches the number of loaded time points.
+        """
+        crop_key = tuple(self.cfg.get("crop_ms", [])) if self.cfg.get("crop_ms") else None
+        cache_key = f"{self.root.resolve()}::{self.label_fn.__name__}::__times_ms__::{crop_key}"
+        if cache_key in _CACHE:
+            return _CACHE[cache_key]
+
+        sfreq = self.sfreq
+        crop_ms = self.cfg.get("crop_ms")
+        if crop_ms:
+            tmin_ms = float(crop_ms[0])
+            tmax_ms = float(crop_ms[1])
+            times_ms = np.linspace(tmin_ms, tmax_ms, num=self.time_points)
+        else:
+            fp = next(self.root.glob("sub-*preprocessed-epo.fif"))
+            ep = mne.read_epochs(fp, preload=False, verbose=False)
+            if ep.times.shape[0] == self.time_points:
+                times_ms = ep.times * 1000.0
+            else:
+                tmin_ms = float(ep.times[0] * 1000.0)
+                tmax_ms = tmin_ms + (self.time_points - 1) / sfreq * 1000.0
+                times_ms = np.linspace(tmin_ms, tmax_ms, num=self.time_points)
+
+        _CACHE[cache_key] = times_ms
+        return times_ms
 
 class SpectrogramDataset(BaseDataset):
     """Dataset for loading spectrograms and metadata."""

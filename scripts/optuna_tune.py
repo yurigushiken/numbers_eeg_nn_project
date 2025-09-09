@@ -78,8 +78,23 @@ engine_run = engine_reg.get(args.engine)
 # -----------------------------------------------------------------------------
 
 def build_cfg(base_yaml_path: Path, overrides: Dict[str, Any]) -> Dict[str, Any]:
-    """Builds a config dict from a base YAML and Optuna overrides."""
-    cfg = yaml.safe_load(base_yaml_path.read_text()) or {}
+    """Builds a config dict from common.yaml + base YAML + Optuna overrides.
+
+    Mirrors train.py's precedence so channel_lists and other shared options
+    are available during tuning.
+    """
+    # Load common.yaml
+    common_yaml = proj_root / "configs" / "common.yaml"
+    if common_yaml.exists():
+        cfg = yaml.safe_load(common_yaml.read_text()) or {}
+    else:
+        cfg = {}
+
+    # Merge base
+    base_cfg = yaml.safe_load(base_yaml_path.read_text()) or {}
+    cfg.update(base_cfg)
+
+    # Overrides
     cfg.update(overrides)
     return cfg
 

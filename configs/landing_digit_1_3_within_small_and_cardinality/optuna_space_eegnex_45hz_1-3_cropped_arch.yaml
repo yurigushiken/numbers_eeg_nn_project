@@ -1,0 +1,28 @@
+# Optuna search space for EEGNeX on the CROPPED 1-3 task - STAGE 1
+# This search uses wider, exploratory ranges because the cropped data
+# presents a fundamentally new learning problem.
+
+# --- Optimizer and Training Parameters ---
+lr:
+  method: log_uniform
+  low: 1.0e-4
+  high: 1.5e-3 # WIDER RANGE: The optimal LR for this new task is unknown.
+batch_size:
+  method: categorical
+  choices: [16, 32] # Test if a larger batch is needed to stabilize gradients on short signals.
+scheduler_patience:
+  method: int
+  low: 8
+  high: 15 # WIDER RANGE: The learning dynamics will be different.
+
+# --- Core EEGNeX Architectural Parameters ---
+filter_1:
+  method: categorical
+  choices: [8, 16, 24, 32] # WIDER RANGE: Test if the model needs more or less capacity.
+kernel_block_1_2:
+  method: categorical
+  choices: [16, 24, 32] # CRITICAL: Testing much SHORTER kernels suitable for a 200ms window.
+drop_prob:
+  method: uniform
+  low: 0.4
+  high: 0.8 # HIGHER RANGE: More aggressive dropout may be needed for this harder, lower-data task.

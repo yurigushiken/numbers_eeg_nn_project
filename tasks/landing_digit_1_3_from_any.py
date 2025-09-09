@@ -8,7 +8,7 @@ stimulus was one of the small numbers.
 import numpy as np
 import pandas as pd
 
-__all__ = ["label_fn"]
+__all__ = ["label_fn", "CONDITIONS"]
 
 def label_fn(meta: pd.DataFrame):
     """
@@ -17,7 +17,7 @@ def label_fn(meta: pd.DataFrame):
     """
     # Explicitly define all valid conditions where the landing digit
     # (ones-place) is 1, 2, or 3.
-    valid_conditions = [
+    CONDITIONS = [
         # Landing on 1
         11, 21, 31, 41, 
         # Landing on 2
@@ -25,6 +25,7 @@ def label_fn(meta: pd.DataFrame):
         # Landing on 3
         13, 23, 33, 43, 53, 63,
     ]
+    valid_conditions = CONDITIONS
 
     cond_int = meta["Condition"].astype(int)
 

@@ -1,0 +1,41 @@
+# "Ultimate Champion" Configuration for EEGNeX on 45Hz Data
+# APPLIED TO: Pairwise task (2 vs 3)
+# DATASET: all_trials_dataset (1-45hz)
+# EVALUATION: Full Leave-One-Subject-Out (LOSO)
+model_name: eegnex
+dataset_dir: "data_preprocessed/all_trials_dataset (1-45hz) V2"
+use_channel_list: non_scalp
+include_channels: [E55, E39, E40, E31, E87, Cz, E115, E53, E78, E100]
+xai_top_k_channels: 10
+crop_ms: [250, 350]
+epochs: 100
+early_stop: 20
+save_ckpt: true
+lr: 0.000781426
+batch_size: 16
+scheduler_patience: 14
+filter_1: 16
+kernel_block_1_2: 128
+drop_prob: 0.474054223
+depth_multiplier: 1
+kernel_block_4: 24
+dilation_block_4: 1
+avg_pool_block4: 4
+kernel_block_5: 8
+dilation_block_5: 4
+avg_pool_block5: 16
+mixup_alpha: 0.167943267
+shift_p: 0.182100037
+shift_max_frac: 0.039063018
+scale_p: 0.081532162
+scale_max: 1.14987267
+noise_p: 0.087185426
+noise_std: 0.020216591
+time_mask_p: 0.340388497
+time_mask_frac: 0.086952604
+chan_mask_p: 0.332160404
+filter_2: 32
+max_norm_conv: 1.0
+max_norm_linear: 0.25
+scale_min: 0.9
+chan_mask_ratio: 0.05

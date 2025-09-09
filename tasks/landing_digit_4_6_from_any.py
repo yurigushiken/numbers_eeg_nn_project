@@ -8,7 +8,7 @@ stimulus was one of the large numbers.
 import numpy as np
 import pandas as pd
 
-__all__ = ["label_fn"]
+__all__ = ["label_fn", "CONDITIONS"]
 
 def label_fn(meta: pd.DataFrame):
     """
@@ -17,7 +17,7 @@ def label_fn(meta: pd.DataFrame):
     """
     # Explicitly define all valid conditions where the landing digit
     # (ones-place) is 4, 5, or 6.
-    valid_conditions = [
+    CONDITIONS = [
         # Landing on 4
         14, 24, 34, 44, 54, 64,
         # Landing on 5
@@ -25,6 +25,7 @@ def label_fn(meta: pd.DataFrame):
         # Landing on 6
         36, 46, 56, 66,
     ]
+    valid_conditions = CONDITIONS
 
     cond_int = meta["Condition"].astype(int)
 
