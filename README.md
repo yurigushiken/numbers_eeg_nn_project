@@ -1,3 +1,11 @@
+> ## **Project Moved**
+>
+> This repository is now archived. The project has been streamlined and moved to a new location:
+>
+> ### **[https://github.com/yurigushiken/eeg_nn](https://github.com/yurigushiken/eeg_nn)**
+>
+> Please visit the new repository for the latest code and updates.
+
 # EEG Numerical-Cognition Decoding Project (Unified 2025-07)
 
 **⚠️ Quick environment setup — READ ME FIRST**
